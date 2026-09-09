@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio Nacional Huanuni | Experiencia 3D Inmersiva</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Estilos propios -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+    <!-- Canvas principal de Three.js -->
+    <canvas id="main-canvas"></canvas>
+
+    <!-- Viñeta -->
+    <div id="vignette"></div>
+
+    <!-- Banner de bienvenida: aparece solo, automáticamente, al terminar de
+         cargar, y desaparece solo antes de iniciar el recorrido guiado.
+         No requiere ningún click. -->
+    <div id="welcome-banner">
+        <div class="welcome-inner">
+            <div class="welcome-badge">Museo Virtual 3D</div>
+            <h1 class="welcome-title">
+                Bienvenido a<br>
+                <span class="red">Radio</span> <span class="gold">Nacional</span><br>
+                Huanuni
+            </h1>
+            <p class="welcome-sub">Comenzando el recorrido guiado…</p>
+        </div>
+    </div>
+
+    <!-- HUD del recorrido -->
+    <div class="hud" id="top-left">
+        <div class="hud-box">
+            <div class="hud-title">RADIO <span>HUANUNI</span></div>
+            <div class="controls-list">
+                <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Moverse<br>
+                <kbd>Mouse</kbd> Mirar &nbsp;|&nbsp; <kbd>Q</kbd><kbd>E</kbd> Rotar<br>
+                <kbd>Espacio</kbd> / <kbd>R</kbd> Subir<br>
+                <kbd>Ctrl</kbd> / <kbd>F</kbd> Bajar<br>
+                <kbd>Shift</kbd> Correr &nbsp;|&nbsp; <kbd>N</kbd> Día/Noche<br>
+                <kbd>E</kbd> Interactuar &nbsp;|&nbsp; <kbd>Z</kbd> Reiniciar
+            </div>
+        </div>
+    </div>
+
+    <div class="hud" id="fps-counter">FPS: --</div>
+
+    <!-- Datos de vuelo -->
+    <div id="flight-data">
+        <div>Altitud: <span class="value" id="alt-value">0.0</span> m</div>
+        <div>Velocidad: <span class="value" id="speed-value">0.0</span> m/s</div>
+        <div>Hora: <span class="value" id="time-value">Día</span></div>
+    </div>
+
+    <!-- Botones de control -->
+    <button class="control-btn" id="btn-daynight" title="Cambiar día/noche">☀️</button>
+    <button class="control-btn" id="btn-sound" title="Sonido ambiente">🔊</button>
+    <button class="control-btn" id="btn-fullscreen" title="Pantalla completa">⛶</button>
+    <button class="control-btn" id="btn-settings" title="Ajustes">⚙️</button>
+    <button class="control-btn" id="btn-help" title="Ayuda">?</button>
+
+    <!-- Panel de ajustes -->
+    <div id="settings-panel">
+        <h3>Ajustes</h3>
+        <div class="setting-row">
+            <label for="quality">Calidad</label>
+            <select id="quality">
+                <option value="high">Alta</option>
+                <option value="medium" selected>Media</option>
+                <option value="low">Baja</option>
+            </select>
+        </div>
+        <div class="setting-row">
+            <label for="exposure">Exposición</label>
+            <input type="range" id="exposure" min="0.5" max="2.5" step="0.1" value="1.2">
+        </div>
+        <div class="setting-row">
+            <label for="volume">Volumen</label>
+            <input type="range" id="volume" min="0" max="1" step="0.01" value="0.5">
+        </div>
+        <div class="setting-row">
+            <label for="sensitivity">Sensibilidad</label>
+            <input type="range" id="sensitivity" min="0.1" max="3" step="0.1" value="1">
+        </div>
+        <div class="setting-row">
+            <label for="particles">Partículas</label>
+            <input type="checkbox" id="particles" checked>
+        </div>
+        <div class="setting-row">
+            <label for="stars">Estrellas</label>
+            <input type="checkbox" id="stars" checked>
+        </div>
+    </div>
+
+    <!-- Mensaje central (aparece sólo después del recorrido guiado, para
+         tomar control manual — requiere un click porque el navegador exige
+         un gesto real del usuario para poder bloquear el puntero) -->
+    <div id="center-message">
+        <h2>TOMA EL <span style="color:var(--gold);">CONTROL</span></h2>
+        <p>El recorrido guiado terminó.<br>Explora libremente, mira los puntos dorados y presiona <kbd>E</kbd> para descubrir su historia.</p>
+        <button id="btn-start">EXPLORAR LIBREMENTE</button>
+    </div>
+
+    <div id="toast"></div>
+
+    <!-- Mira central (modo manual) -->
+    <div id="crosshair">
+        <span class="crosshair-dot"></span>
+    </div>
+
+    <!-- Aviso de interacción con hotspots -->
+    <div id="interact-hint"></div>
+
+    <!-- Panel de información de un hotspot: incluye el objeto 3D real
+         (clonado del edificio o el logo.glb) girando arriba del texto -->
+    <div id="hotspot-panel">
+        <div class="hotspot-panel-inner">
+            <button id="hotspot-close" title="Cerrar">✕</button>
+            <div id="exhibit-stage">
+                <canvas id="exhibit-canvas"></canvas>
+            </div>
+            <h3 id="hotspot-title"></h3>
+            <p id="hotspot-desc"></p>
+            <span class="hotspot-hint">Presiona <kbd>E</kbd> o el botón ✕ para continuar explorando</span>
+        </div>
+    </div>
+
+    <!-- Overlay del recorrido cinemático guiado -->
+    <div id="tour-overlay">
+        <div class="tour-inner">
+            <div class="tour-label">🎬 Recorrido guiado en curso…</div>
+            <div class="tour-progress">
+                <div class="tour-progress-bar" id="tour-progress-bar"></div>
+            </div>
+            <button id="btn-skip-tour">Saltar recorrido ⏭</button>
+        </div>
+    </div>
+
+    <!-- Pantalla de carga (la única pantalla antes del recorrido) -->
+    <div id="loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Preparando experiencia 3D...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar" id="progress-bar"></div>
+        </div>
+    </div>
+
+    <!-- Transición de salida -->
+    <div id="fade-transition"></div>
+
+    <!-- Import Map para Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- Lógica de la aplicación -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

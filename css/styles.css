@@ -1,0 +1,609 @@
+/* ============================================
+   VARIABLES GLOBALES
+   ============================================ */
+:root {
+    --bg-dark: #050508;
+    --gold: #c9a84c;
+    --gold-light: #e0c878;
+    --red: #d60000;
+    --glass-bg: rgba(10, 10, 14, 0.65);
+    --glass-border: rgba(201, 168, 76, 0.25);
+    --text: #e8e6e3;
+    --text-muted: #9a9a9a;
+    --font-heading: 'Montserrat', sans-serif;
+    --font-body: 'Poppins', sans-serif;
+    --transition-smooth: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-dark);
+    font-family: var(--font-body);
+    color: var(--text);
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+}
+
+canvas#main-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+}
+
+/* ============================================
+   BANNER DE BIENVENIDA (automático, sin botón)
+   ============================================ */
+#welcome-banner {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 1s ease, visibility 1s;
+}
+
+#welcome-banner.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.welcome-inner {
+    padding: 2rem;
+    transform: scale(0.92);
+    transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#welcome-banner.visible .welcome-inner {
+    transform: scale(1);
+}
+
+.welcome-badge {
+    display: inline-block;
+    padding: 6px 18px;
+    border: 1px solid var(--gold);
+    border-radius: 50px;
+    color: var(--gold);
+    font-family: var(--font-heading);
+    font-size: 0.75rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 1.6rem;
+    background: rgba(201, 168, 76, 0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.welcome-title {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    font-size: clamp(2.2rem, 7vw, 4.6rem);
+    line-height: 1.15;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    text-shadow: 0 0 40px rgba(201, 168, 76, 0.4);
+}
+
+.welcome-title .red { color: var(--red); text-shadow: 0 0 30px rgba(214, 0, 0, 0.6); }
+.welcome-title .gold { color: var(--gold); text-shadow: 0 0 20px rgba(201, 168, 76, 0.5); }
+
+.welcome-sub {
+    margin-top: 1.3rem;
+    font-size: 0.95rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* ============================================
+   HUD DEL RECORRIDO
+   ============================================ */
+.hud { position: fixed; z-index: 10; pointer-events: none; display: none; }
+.hud.visible { display: block; }
+#top-left { top: 20px; left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.hud-box { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 12px 18px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 25px rgba(0,0,0,0.5); }
+.hud-title { font-family: var(--font-heading); font-weight: 700; font-size: 1rem; letter-spacing: 1px; color: #fff; margin-bottom: 8px; }
+.hud-title span { color: var(--gold); }
+.controls-list { font-size: 0.75rem; color: var(--text-muted); line-height: 1.7; }
+.controls-list kbd { display: inline-block; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 0.7rem; color: #ccc; }
+#fps-counter { top: 20px; right: 20px; font-size: 0.7rem; font-family: monospace; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 20px; pointer-events: none; display: none; }
+#fps-counter.visible { display: block; }
+
+/* Datos de vuelo */
+#flight-data {
+    position: fixed; bottom: 20px; left: 20px; z-index: 10;
+    background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px;
+    padding: 10px 16px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    font-size: 0.7rem; color: var(--text-muted); line-height: 1.5; pointer-events: none;
+    display: none;
+}
+#flight-data.visible { display: block; }
+#flight-data .value { color: var(--gold-light); font-weight: 600; }
+
+/* ============================================
+   BOTONES FLOTANTES DE CONTROL
+   ============================================ */
+.control-btn {
+    position: fixed;
+    z-index: 10;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(10, 10, 14, 0.7);
+    border: 1px solid var(--glass-border);
+    color: #fff;
+    font-size: 1.3rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: all 0.3s;
+}
+
+.control-btn:hover {
+    background: rgba(201, 168, 76, 0.15);
+    border-color: var(--gold);
+    box-shadow: 0 0 15px rgba(201, 168, 76, 0.3);
+    transform: scale(1.1);
+}
+
+#btn-daynight { top: 20px; right: 20px; }
+#btn-sound { top: 20px; right: 80px; }
+#btn-fullscreen { top: 20px; right: 140px; }
+#btn-settings { top: 20px; right: 200px; }
+#btn-help { top: 20px; right: 260px; display: none; }
+#btn-help.visible { display: flex; }
+
+/* ============================================
+   MENÚ DE AJUSTES
+   ============================================ */
+#settings-panel {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 15;
+    background: rgba(10, 10, 14, 0.9);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 20px;
+    width: 260px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    transition: all 0.4s ease;
+    transform-origin: top right;
+    pointer-events: auto;
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(0.9);
+}
+
+#settings-panel.open {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1);
+}
+
+#settings-panel h3 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 15px;
+    border-bottom: 1px solid rgba(201,168,76,0.2);
+    padding-bottom: 10px;
+}
+
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.setting-row label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.setting-row input[type="range"] {
+    width: 80px;
+    cursor: pointer;
+    background: transparent;
+}
+
+.setting-row select {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 0.75rem;
+}
+
+/* ============================================
+   LOADING SCREEN
+   ============================================ */
+#loading {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: var(--bg-dark);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.8s ease, visibility 0.8s;
+}
+
+#loading.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.loading-spinner {
+    width: 70px;
+    height: 70px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--gold);
+    border-right-color: var(--red);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 25px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-text {
+    font-family: var(--font-heading);
+    font-size: 1.2rem;
+    letter-spacing: 4px;
+    color: var(--gold);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.loading-progress {
+    margin-top: 15px;
+    width: 260px;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.loading-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--red), var(--gold));
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+/* ============================================
+   MENSAJE CENTRAL (TOMAR CONTROL DESPUÉS DEL RECORRIDO)
+   ============================================ */
+#center-message {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40;
+    background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 20px;
+    padding: 30px 40px; text-align: center; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7); transition: opacity 0.5s, visibility 0.5s;
+    display: none;
+}
+#center-message.visible { display: block; }
+#center-message.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+#center-message h2 { font-family: var(--font-heading); font-weight: 800; font-size: 1.8rem; margin-bottom: 10px; letter-spacing: 2px; }
+#center-message p { color: var(--text-muted); margin-bottom: 20px; }
+#btn-start { display: inline-block; padding: 14px 30px; font-family: var(--font-heading); font-weight: 600; font-size: 0.9rem; letter-spacing: 1px; text-transform: uppercase; color: var(--gold-light); background: rgba(201,168,76,0.1); border: 1px solid var(--gold); border-radius: 50px; cursor: pointer; transition: all 0.3s; }
+#btn-start:hover { background: rgba(201,168,76,0.25); box-shadow: 0 0 20px rgba(201,168,76,0.4); }
+
+/* Toast */
+#toast {
+    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 35;
+    background: var(--glass-bg); border: 1px solid var(--glass-border); backdrop-filter: blur(20px);
+    padding: 10px 20px; border-radius: 50px; font-size: 0.85rem; color: var(--gold-light);
+    opacity: 0; pointer-events: none; transition: opacity 0.4s, transform 0.4s;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ============================================
+   VIÑETA Y EFECTOS
+   ============================================ */
+#vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.4) 100%);
+    mix-blend-mode: multiply;
+}
+
+#fade-transition {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 1.5s ease;
+}
+
+/* ============================================
+   MIRA CENTRAL (CROSSHAIR)
+   ============================================ */
+#crosshair {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 8;
+    width: 20px; height: 20px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+#crosshair.visible { display: flex; }
+#crosshair::before, #crosshair::after {
+    content: '';
+    position: absolute;
+    background: rgba(255,255,255,0.55);
+}
+#crosshair::before { width: 2px; height: 10px; }
+#crosshair::after { width: 10px; height: 2px; }
+.crosshair-dot {
+    position: absolute;
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--gold-light);
+    box-shadow: 0 0 6px rgba(224, 200, 120, 0.8);
+}
+
+/* ============================================
+   AVISO DE INTERACCIÓN CON HOTSPOTS
+   ============================================ */
+#interact-hint {
+    position: fixed;
+    bottom: 130px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    background: var(--glass-bg);
+    border: 1px solid var(--gold);
+    border-radius: 50px;
+    padding: 8px 20px;
+    font-size: 0.8rem;
+    color: var(--gold-light);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    white-space: nowrap;
+}
+#interact-hint.visible { opacity: 1; }
+
+/* ============================================
+   PANEL DE INFORMACIÓN DE HOTSPOT (+ ESCENARIO 3D)
+   ============================================ */
+#hotspot-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.35s ease, visibility 0.35s;
+}
+#hotspot-panel.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+.hotspot-panel-inner {
+    position: relative;
+    max-width: 520px;
+    width: 90%;
+    background: rgba(10, 10, 14, 0.92);
+    border: 1px solid var(--glass-border);
+    border-radius: 18px;
+    padding: 30px 40px 35px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+    animation: fadeInContent 0.4s ease forwards;
+}
+@keyframes fadeInContent {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Escenario de exhibición: renderiza el objeto 3D real (clonado del
+   edificio, o el logo.glb para "img_logo") girando sobre sí mismo. */
+#exhibit-stage {
+    display: none;
+    width: 100%;
+    height: 220px;
+    margin-bottom: 20px;
+    border-radius: 14px;
+    background: radial-gradient(circle at 50% 38%, rgba(201,168,76,0.14), rgba(0,0,0,0.4) 72%);
+    border: 1px solid var(--glass-border);
+    overflow: hidden;
+}
+#exhibit-stage.visible {
+    display: block;
+}
+#exhibit-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#hotspot-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 1.4rem;
+    letter-spacing: 1px;
+    color: var(--gold);
+    margin-bottom: 14px;
+}
+#hotspot-desc {
+    color: var(--text);
+    font-size: 0.95rem;
+    line-height: 1.7;
+    margin-bottom: 18px;
+}
+.hotspot-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+}
+.hotspot-hint kbd {
+    display: inline-block;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: #ccc;
+}
+#hotspot-close {
+    position: absolute;
+    top: 14px; right: 14px;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,0.05);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    z-index: 2;
+}
+#hotspot-close:hover {
+    background: rgba(214,0,0,0.2);
+    border-color: var(--red);
+    color: #fff;
+}
+
+/* ============================================
+   OVERLAY DEL RECORRIDO CINEMÁTICO GUIADO
+   ============================================ */
+#tour-overlay {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.5s ease, visibility 0.5s;
+}
+#tour-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+.tour-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 18px 30px;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+}
+.tour-label {
+    font-family: var(--font-heading);
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--gold-light);
+}
+.tour-progress {
+    width: 320px;
+    max-width: 60vw;
+    height: 5px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.tour-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--red), var(--gold));
+    border-radius: 3px;
+    transition: width 0.15s linear;
+}
+#btn-skip-tour {
+    padding: 8px 22px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--gold-light);
+    background: rgba(201, 168, 76, 0.1);
+    border: 1px solid var(--gold);
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+#btn-skip-tour:hover {
+    background: rgba(201, 168, 76, 0.25);
+    box-shadow: 0 0 20px rgba(201, 168, 76, 0.35);
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 768px) {
+    .welcome-title { font-size: 2.3rem; }
+    .welcome-sub { font-size: 0.8rem; }
+    .control-btn { width: 40px; height: 40px; font-size: 1.1rem; }
+    #btn-daynight { top: 10px; right: 10px; }
+    #btn-sound { top: 10px; right: 60px; }
+    #btn-fullscreen { top: 10px; right: 110px; }
+    #btn-settings { top: 10px; right: 160px; }
+    #btn-help { top: 10px; right: 210px; }
+    .tour-progress { width: 50vw; }
+    #interact-hint { bottom: 110px; font-size: 0.7rem; padding: 6px 14px; }
+    .hotspot-panel-inner { padding: 22px 20px 28px; }
+    #exhibit-stage { height: 160px; margin-bottom: 16px; }
+}
