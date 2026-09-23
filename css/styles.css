@@ -591,6 +591,213 @@ canvas#main-canvas {
 }
 
 /* ============================================
+   PANEL DE LA RADIO EN VIVO (zoom cinemático + ondas)
+   ============================================ */
+#radio-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 26;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 50%, rgba(35, 0, 92, 0.55), rgba(0, 0, 0, 0.8) 72%);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.5s ease, visibility 0.5s;
+}
+#radio-panel.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+/* Ondas de radio: anillos concéntricos dibujados en canvas 2D, expandiéndose
+   detrás de la tarjeta del reproductor mientras la transmisión está activa. */
+#radio-waves-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.radio-panel-inner {
+    position: relative;
+    z-index: 2;
+    max-width: 460px;
+    width: 90%;
+    background: linear-gradient(160deg, rgba(35, 0, 92, 0.55), rgba(10, 10, 14, 0.92));
+    border: 1px solid rgba(201, 168, 76, 0.35);
+    border-radius: 22px;
+    padding: 34px 36px 30px;
+    text-align: center;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.75), 0 0 50px rgba(201, 168, 76, 0.12);
+    transform: scale(0.82) translateY(20px);
+    opacity: 0;
+}
+#radio-panel.visible .radio-panel-inner {
+    animation: radioPanelIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes radioPanelIn {
+    from { transform: scale(0.8) translateY(24px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.radio-badge-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    border-radius: 50px;
+    border: 1px solid rgba(214, 0, 0, 0.5);
+    background: rgba(214, 0, 0, 0.14);
+    color: #ff6a6a;
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    letter-spacing: 2.5px;
+    font-weight: 700;
+    margin-bottom: 18px;
+    transition: opacity 0.3s;
+}
+.radio-badge-live .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff3b3b;
+    box-shadow: 0 0 8px rgba(255, 59, 59, 0.9);
+    animation: liveDotPulse 1.4s ease-in-out infinite;
+}
+@keyframes liveDotPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.7); }
+}
+#radio-panel.paused .radio-badge-live { opacity: 0.4; }
+#radio-panel.paused .radio-badge-live .dot { animation-play-state: paused; }
+
+.radio-logo {
+    font-size: 2.6rem;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 0 14px rgba(201, 168, 76, 0.5));
+}
+.radio-station {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 1.5rem;
+    letter-spacing: 1px;
+    color: #fff;
+}
+.radio-station span { color: var(--gold); }
+.radio-freq {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    letter-spacing: 1px;
+    margin: 6px 0 22px;
+}
+
+/* Ecualizador: barras que "bailan" al ritmo de una animación orgánica
+   (no dependen del stream real, así siempre se ven vivas aunque el
+   servidor de streaming no permita análisis de audio por CORS). */
+.radio-bars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3px;
+    height: 60px;
+    margin-bottom: 18px;
+}
+.radio-bar {
+    width: 4px;
+    height: 100%;
+    border-radius: 3px 3px 1px 1px;
+    background: linear-gradient(to top, var(--red), var(--gold) 55%, var(--gold-light));
+    transform-origin: bottom center;
+    transform: scaleY(0.08);
+    box-shadow: 0 0 6px rgba(201, 168, 76, 0.25);
+}
+
+.radio-status {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 22px;
+}
+
+.radio-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.radio-btn-primary, .radio-btn-secondary {
+    display: inline-block;
+    padding: 12px 20px;
+    border-radius: 50px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.3s;
+    border: 1px solid var(--gold);
+}
+.radio-btn-primary {
+    color: var(--gold-light);
+    background: rgba(201, 168, 76, 0.12);
+}
+.radio-btn-primary:hover {
+    background: rgba(201, 168, 76, 0.28);
+    box-shadow: 0 0 20px rgba(201, 168, 76, 0.4);
+}
+.radio-btn-secondary {
+    color: #cbb8ff;
+    background: rgba(150, 60, 220, 0.14);
+    border-color: rgba(150, 60, 220, 0.5);
+}
+.radio-btn-secondary:hover {
+    background: rgba(150, 60, 220, 0.26);
+    box-shadow: 0 0 20px rgba(150, 60, 220, 0.35);
+}
+
+.radio-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+.radio-hint kbd {
+    display: inline-block;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: monospace;
+    font-size: 0.68rem;
+    color: #ccc;
+}
+
+#radio-close {
+    position: absolute;
+    top: 14px; right: 14px;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,0.05);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    z-index: 3;
+}
+#radio-close:hover {
+    background: rgba(214,0,0,0.2);
+    border-color: var(--red);
+    color: #fff;
+}
+
+/* ============================================
    RESPONSIVE
    ============================================ */
 @media (max-width: 768px) {
@@ -606,4 +813,7 @@ canvas#main-canvas {
     #interact-hint { bottom: 110px; font-size: 0.7rem; padding: 6px 14px; }
     .hotspot-panel-inner { padding: 22px 20px 28px; }
     #exhibit-stage { height: 160px; margin-bottom: 16px; }
+    .radio-panel-inner { padding: 26px 22px 24px; }
+    .radio-bars { height: 46px; }
+    .radio-station { font-size: 1.25rem; }
 }

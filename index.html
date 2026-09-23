@@ -133,6 +133,27 @@
         </div>
     </div>
 
+    <!-- Panel de la Radio en Vivo: se abre con zoom cinemático al interactuar
+         con la computadora. Muestra ondas de radio animadas, un ecualizador
+         y acceso directo al sitio web oficial de la emisora. -->
+    <div id="radio-panel">
+        <canvas id="radio-waves-canvas"></canvas>
+        <div class="radio-panel-inner">
+            <button id="radio-close" title="Cerrar">✕</button>
+            <div class="radio-badge-live"><span class="dot"></span>EN VIVO</div>
+            <div class="radio-logo">📻</div>
+            <h3 class="radio-station">Radio Nacional <span>Huanuni</span></h3>
+            <p class="radio-freq">FM 94.5 · Oruro, Bolivia</p>
+            <div class="radio-bars" id="radio-bars"></div>
+            <div class="radio-status" id="radio-status">Sintonizando…</div>
+            <div class="radio-controls">
+                <button id="radio-toggle-btn" class="radio-btn-primary">⏸ Pausar</button>
+                <a href="https://www.radionacionaldehuanuni.com/" target="_blank" rel="noopener" class="radio-btn-secondary">🌐 Visitar sitio web</a>
+            </div>
+            <span class="radio-hint">Presiona <kbd>E</kbd> o el botón ✕ para volver</span>
+        </div>
+    </div>
+
     <!-- Overlay del recorrido cinemático guiado -->
     <div id="tour-overlay">
         <div class="tour-inner">

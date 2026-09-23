@@ -5,6 +5,14 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // CONFIGURACIÓN GLOBAL
 // ============================================
 const CONFIG = {
+
+    computer: {
+        streamUrl: 'https://stream.alfasistemas.com:8030/stream',
+    },
+    computers: [
+        { name: 'compu', label: 'la radio' },
+    ],
+
     renderer: {
         antialias: true,
         alpha: false,
@@ -26,27 +34,31 @@ const CONFIG = {
         startPosition: [0, 8, 10], // Fallback si no se encuentra el marcador spawn_player
         eyeHeight: 1.7,            // Altura de ojos sobre el marcador de spawn
         mouseSensitivity: 0.002,
-        moveSpeed: 3.2,
-        runSpeed: 6.0,
+        moveSpeed: 0.5,            // caminar (antes 3.2: era demasiado rápido)
+        runSpeed: 3.0,             // correr con Shift (antes 6.0: idem)
         verticalSpeed: 4.0,
         smoothing: 8.0,
         acceleration: 8.0,         // qué tan rápido el personaje alcanza la velocidad objetivo (horizontal)
-        interactionDistance: 7,    // Distancia máxima para interactuar con un hotspot
-        interactionCone: 0.86,     // Coseno del ángulo de "mira" (más alto = cono más estrecho)
-        cameraDistance: 4.5,       // Qué tan lejos, detrás del personaje, orbita la cámara (tercera persona)
-        cameraMinDistance: 1.2,    // distancia mínima de la cámara al personaje (zoom / colisión)
-        cameraMaxDistance: 8.0,    // distancia máxima de la cámara al personaje (zoom)
-        cameraZoomSpeed: 0.6,      // cuánto cambia la distancia por "muesca" de rueda del mouse
-        cameraCollisionBuffer: 0.35, // separación que deja la cámara respecto a una pared al chocar
-        cameraHeight: 1.9,         // Altura de la cámara sobre los pies del personaje
-        cameraLookHeight: 1.4,     // Altura (sobre los pies) del punto al que mira la cámara
-        pitchMin: -0.6,            // límite inferior de inclinación de cámara (tercera persona)
-        pitchMax: 1.0,             // límite superior de inclinación de cámara (tercera persona)
+        interactionDistance: 4.0,  // Distancia máxima para poder interactuar (además hay que apuntar: ver interactionScreenRadius)
+        interactionScreenRadius: 0.16, // Qué tan cerca del centro de la pantalla (crosshair) debe estar el objeto, en coords de pantalla normalizadas (0 = centro exacto, 1 = borde). Más alto = más fácil de apuntar.
+        cameraDistance: 0.5,       // Qué tan lejos, detrás del personaje, se ancla la cámara (estilo "over the shoulder")
+        cameraMinDistance: 0.8,    // distancia mínima de la cámara al personaje (colisión contra muros)
+        cameraMaxDistance: 3.2,    // distancia máxima de la cámara al personaje (zoom con rueda del mouse)
+        cameraZoomSpeed: 0.3,      // cuánto cambia la distancia por "muesca" de rueda del mouse
+        cameraCollisionBuffer: 0.3, // separación que deja la cámara respecto a una pared al chocar
+        cameraHeight: 0.55,        // Altura del ANCLA de la cámara sobre los pies del personaje ("detrás de las rodillas", estilo God of War 2018)
+        cameraBasePitch: 0.12,     // Inclinación fija hacia arriba (radianes) sumada al pitch del mouse, para que la cámara "baja" siga enmarcando al personaje en vez de mirar sólo al horizonte
+        pitchMin: -0.5,            // límite inferior de inclinación de cámara (mirar hacia abajo)
+        pitchMax: 0.85,            // límite superior de inclinación de cámara (mirar hacia arriba)
         characterTurnSpeed: 9.0,   // Qué tan rápido gira el personaje hacia la dirección en la que camina
         gravity: -14,          // "peso" del personaje: aceleración hacia abajo cuando no vuela manualmente
         maxFallSpeed: 20,      // velocidad máxima de caída
         groundSnapMargin: 0.05,// margen para considerar que ya está tocando el piso
+        floorStepUpAllowance: 0.45, // cuánto puede "subir" el piso de un frame a otro (altura de un escalón) sin que se considere caída; SUBIR este valor si tus gradas tienen escalones más altos, pero sin acercarlo a la altura libre entre pisos (o volverá a "engancharse" con el piso de arriba)
+        floorDebug: false, // ponlo en true y abre la consola (F12): cada vez que el piso encontrado esté ARRIBA de tus pies (el caso sospechoso del "teletransporte"), te dice el nombre exacto de la malla "COL_*" responsable
         voidRespawnDrop: 18,   // si el personaje cae más de esto por debajo del spawn, se reposiciona
+        wallCollisionBuffer: 0.18, // separación que se deja frente a un muro ("pared*") antes de bloquear el paso (si sigues atascándote en un hueco/puerta angosto, baja este número)
+        wallCollisionDebug: false, // ponlo en true para ver en la consola (F12) qué malla "pared*" te está bloqueando y dónde
     },
     model: {
         // Rutas relativas a index.html (carpeta /models)
@@ -64,11 +76,15 @@ const CONFIG = {
         characterScale: 0.05,
         // Si el personaje camina "de espaldas" a hacia donde apunta la cámara, cambia este valor a 0.
         characterYawOffset: Math.PI,
-        // Nombres (o fragmentos de nombre, sin distinguir mayúsculas) de los clips de animación dentro
-        // de personaje.glb. Si no encuentran coincidencia, se usa el primer clip como "idle" y el
-        // segundo (si existe) como "walk".
-        characterIdleClip: 'idle',
-        characterWalkClip: 'walk',
+        // Palabras clave (fragmentos de nombre, sin distinguir mayúsculas) para identificar los
+        // clips de animación dentro de personaje.glb. Se prueban EN ORDEN y en varios idiomas,
+        // porque muchos modelos (sobre todo hechos a mano, no de Mixamo) no usan nombres en
+        // inglés. Si ninguna palabra clave calza con ningún clip, se usa un análisis de
+        // "movimiento" (ver pickWalkAndIdleClips) para adivinar cuál es cuál sin depender del
+        // nombre — así se evita el bug de "idle/walk mal detectados" aunque el .glb tenga
+        // nombres raros o en otro idioma.
+        characterWalkClipKeywords: ['walk', 'caminar', 'caminata', 'andar', 'run', 'correr', 'marcha'],
+        characterIdleClipKeywords: ['idle', 'reposo', 'inactivo', 'quieto', 'parado', 'parada', 'standing', 'stand', 'rest', 'bind', 'tpose', 't-pose'],
     },
     tour: {
         duration: 18, // segundos que dura el recorrido cinemático guiado
@@ -81,6 +97,37 @@ const CONFIG = {
     // `useLogoModel: true` hace que ese hotspot muestre el logo.glb independiente
     // en vez de clonar el nodo del edificio (pensado para "img_logo").
     hotspots: [
+
+      {
+            name: 'poster_sala2',
+            title: 'Póster "La Primera del País"',
+            desc: 'El póster institucional de Radio Nacional Huanuni: su mascota, un minero con casco y lámpara frente al micrófono, representa el espíritu con el que la emisora se ganó el título de "La Primera del País" entre los oyentes del distrito.',
+        },
+        
+        {
+            name: 'poster_sala1',
+            title: 'Póster de Canal Minero',
+            desc: 'El póster de Canal Minero (Canal 2 HD), medio televisivo hermano de Radio Nacional de Huanuni: juntos, radio y televisión, llevaron por años la señal abierta y la voz del distrito minero a toda la región.',
+        },
+
+        {
+            name: 'poster_sala',
+            title: 'Póster de la Radio',
+            desc: 'El póster promocional de Radio Nacional de Huanuni (RNH), FM 94.5: la imagen que identifica a la emisora en la sala, con su mascota minera y la dirección de su sitio web, símbolo de la voz que acompaña al distrito día a día.',
+        },
+        
+        {
+            name: 'cuadro_teatro1',
+            title: 'Cuadro del Teatro Popular II',
+            desc: 'Otra escena del teatro popular: entre los cerros y el pueblo se alza una figura protectora que vela por la comunidad minera, mientras las manos del pueblo se elevan en súplica y esperanza, retratando la fe y la memoria colectiva de Huanuni.',
+        },
+
+        {
+            name: 'cuadro_radio',
+            title: 'Mural del Socavón',
+            desc: 'Un mural que retrata el alma minera de Huanuni: el trabajador con su dinamita y su lámpara, el Tío del socavón —figura protectora y temida de las minas—, y las imágenes de lucha y memoria revolucionaria que marcaron la historia del distrito.',
+        },
+
         {
             name: 'antena',
             title: 'Antena de Transmisión',
@@ -117,12 +164,20 @@ const CONFIG = {
     // "Presiona E para abrir/cerrar" además de una animación simple de giro.
     // Nota: ya no bloquean el paso (ver sección de MOVIMIENTO más abajo),
     // es sólo una animación visual de apertura/cierre.
+    //
+    // `flip: true` invierte el sentido de apertura (por si la puerta gira "hacia adentro"
+    // o "hacia la pared" en vez de abrirse limpiamente) — útil cuando el pivote del objeto
+    // en el .glb quedó orientado al revés respecto a las demás puertas.
     doors: [
         { name: 'puerta1', label: 'la puerta' },
         { name: 'puerta2', label: 'la puerta' },
         { name: 'puerta3', label: 'la puerta' },
         { name: 'porton_iz', label: 'el portón' },
-        { name: 'porton._de', label: 'el portón' },
+        // 🔧 FIX: el nombre tenía un punto de más ("porton._de"), por lo que nunca
+        // coincidía con el nodo real del modelo y este portón quedaba siempre omitido
+        // (en silencio, sin ningún error en consola). Si en tu .glb el nodo se llama
+        // distinto, cambia sólo el valor de "name" por el nombre real del objeto.
+        { name: 'porton_de', label: 'el portón' },
     ],
     doorAnimation: {
         openAngle: Math.PI * 0.55, // ~100°
@@ -196,7 +251,8 @@ let aimedInteractable = null;
 let tourElapsed = 0;
 let tourCurves = null;
 let logoModelTemplate = null; // copia "limpia" (sin escalar/posicionar) del logo.glb, para el panel de exhibición
-const floorMeshes = []; // mallas de piso/piso1/piso2/piso3, usadas sólo para la colisión de piso
+const floorMeshes = []; // mallas "COL_*" (piso, gradas, rampas...), usadas para la colisión de piso (quedan invisibles)
+const wallMeshes = [];  // mallas "pared*", usadas para bloquear el paso del personaje (colisión real de muros)
 const collisionMeshes = []; // TODAS las mallas del edificio: colisión de cámara + respaldo de piso
 let currentCameraDistance = CONFIG.player.cameraDistance; // distancia actual de la cámara (zoom con rueda del mouse)
 // --- Personaje jugable (tercera persona) ---
@@ -204,6 +260,8 @@ let characterMixer = null;                 // THREE.AnimationMixer del personaje
 let characterActions = { idle: null, walk: null };
 let currentCharacterAction = null;         // acción actualmente en reproducción (para hacer crossfade)
 let characterFacingYaw = 0;                // hacia dónde MIRA/gira el personaje (distinto del yaw de la cámara)
+let characterHasAnimations = false;        // true sólo si personaje.glb trajo al menos un clip utilizable
+let proceduralWalkPhase = 0;               // fase del "bamboleo" procedural de emergencia (ver updateProceduralWalkFallback)
 
 // Punto de spawn: se completa (si existe) al cargar el modelo con el nodo "spawn_player"
 const spawnPoint = {
@@ -398,6 +456,10 @@ const hotspots = []; // { title, desc, position, marker, sourceNode, useLogoMode
 const doors = [];    // { node, label, position, isOpen, angle, baseRotationY }
 const interactables = []; // lista combinada para el sistema de "mira e interactúa"
 
+const computers = [];
+let radioAudio = null;
+let radioPlaying = false;
+
 // ============================================
 // ESCENARIO DE EXHIBICIÓN 3D (panel al presionar E)
 // ============================================
@@ -469,6 +531,7 @@ function setExhibitObject(sourceNode) {
         if (child.isMesh) {
             child.castShadow = false;
             child.receiveShadow = false;
+            child.visible = true; // por si el nodo original ("COL_*") estaba oculto por ser colisión
         }
     });
 
@@ -523,6 +586,155 @@ function stripRootMotion(clip) {
     });
 }
 
+// Hace que un AnimationClip "cierre" perfectamente en loop: por defecto,
+// THREE.AnimationMixer usa LoopRepeat, que simplemente SALTA del último
+// frame al primero cada vez que el clip termina un ciclo. Si el primer y el
+// último frame de la animación no son EXACTAMENTE iguales (muy común: casi
+// ningún ciclo de caminata exportado a mano queda perfectamente cerrado),
+// ese salto se ve como un pequeño "teletransporte"/tirón que se repite cada
+// vez que se completa un ciclo — justo lo que describe el bug de "camina un
+// rato y se teletransporta un poco hacia atrás repitiendo la animación".
+//
+// Esta función corrige eso en TODOS los tracks (posición y rotación de cada
+// hueso), redistribuyendo suavemente, a lo largo de todo el clip, la
+// pequeña diferencia que exista entre el primer y el último frame — así el
+// final queda calzando exactamente con el inicio y el loop no da ningún
+// salto perceptible. Se aplica DESPUÉS de stripRootMotion (que ya quitó el
+// desplazamiento grande e intencional del root), así que aquí sólo se
+// corrigen los pequeños desajustes residuales que sobran del export.
+function makeClipLoopSeamless(clip) {
+    if (!clip || !clip.tracks) return;
+    const _qStart = new THREE.Quaternion();
+    const _qEnd = new THREE.Quaternion();
+    const _qCorrection = new THREE.Quaternion();
+    const _qIdentity = new THREE.Quaternion();
+    const _qStep = new THREE.Quaternion();
+    const _qFrame = new THREE.Quaternion();
+
+    clip.tracks.forEach((track) => {
+        const values = track.values;
+        const times = track.times;
+        const count = times.length;
+        if (!values || count < 2) return;
+        const duration = (times[count - 1] - times[0]) || 1;
+
+        if (track.name.endsWith('.quaternion')) {
+            _qStart.set(values[0], values[1], values[2], values[3]);
+            _qEnd.set(values[(count - 1) * 4], values[(count - 1) * 4 + 1], values[(count - 1) * 4 + 2], values[(count - 1) * 4 + 3]);
+            if (_qStart.equals(_qEnd)) return; // ya cierra perfecto: no tocar
+            // Rotación que hay que "restar" al final para que quede igual al inicio.
+            _qCorrection.copy(_qEnd).invert().premultiply(_qStart);
+            for (let i = 0; i < count; i++) {
+                const t = (times[i] - times[0]) / duration;
+                _qStep.copy(_qIdentity).slerp(_qCorrection, t);
+                _qFrame.set(values[i * 4], values[i * 4 + 1], values[i * 4 + 2], values[i * 4 + 3]);
+                _qFrame.premultiply(_qStep);
+                values[i * 4] = _qFrame.x;
+                values[i * 4 + 1] = _qFrame.y;
+                values[i * 4 + 2] = _qFrame.z;
+                values[i * 4 + 3] = _qFrame.w;
+            }
+        } else if (track.name.endsWith('.position') || track.name.endsWith('.scale')) {
+            for (let c = 0; c < 3; c++) {
+                const startV = values[c];
+                const endV = values[(count - 1) * 3 + c];
+                const diff = endV - startV;
+                if (Math.abs(diff) < 1e-5) continue;
+                for (let i = 0; i < count; i++) {
+                    const t = (times[i] - times[0]) / duration;
+                    values[i * 3 + c] -= diff * t;
+                }
+            }
+        }
+    });
+}
+
+// ============================================
+// DETECCIÓN ROBUSTA DE CLIPS "CAMINAR" / "QUIETO"
+// ============================================
+// Esta es la parte que corrige el bug de "el personaje queda congelado en una
+// pose de zancada tanto al caminar como al estar quieto": antes, si ningún
+// nombre de clip contenía literalmente "walk" o "idle" (por ejemplo si tu
+// personaje.glb trae los clips nombrados en español, o Blender los exportó
+// como "Action", "Armature|Action.002", etc.), el código elegía el clip de
+// caminar "a ciegas" (el primero de la lista) y eso puede NO ser en absoluto
+// una animación de caminata — de ahí que se viera siempre la misma pose fija
+// sin importar si te movías o no.
+//
+// Ahora, además de probar varias palabras clave (inglés y español), si
+// ninguna coincide se calcula cuánto "se mueve" cada clip (cuánto cambian sus
+// tracks de rotación/posición de principio a fin) y se asume que el clip con
+// MÁS movimiento es el de caminar, y el de MENOS movimiento (si hay un
+// tercero disponible) es el de estar quieto. Esto funciona sin importar cómo
+// se llamen los clips en tu archivo.
+function findClipByKeywords(clips, keywords) {
+    return clips.find((clip) => {
+        const lower = clip.name.toLowerCase();
+        return keywords.some((kw) => lower.includes(kw));
+    }) || null;
+}
+
+// "Cuánto se mueve" un clip: suma, para cada track de rotación/posición, la
+// diferencia entre el valor máximo y mínimo de cada componente. Un clip
+// estático (o casi) da un número cercano a 0; un ciclo de caminata real da
+// un número mucho más alto (piernas, brazos, cadera moviéndose bastante).
+function computeClipMotionScore(clip) {
+    if (!clip || !clip.tracks) return 0;
+    let score = 0;
+    clip.tracks.forEach((track) => {
+        if (!/\.(position|quaternion|rotation)$/.test(track.name)) return;
+        const values = track.values;
+        if (!values || values.length < 2) return;
+        // Recorremos por "componentes" (x,y,z o x,y,z,w) para no mezclar ejes distintos.
+        const stride = track.name.endsWith('.quaternion') ? 4 : 3;
+        for (let c = 0; c < stride; c++) {
+            let min = Infinity;
+            let max = -Infinity;
+            for (let i = c; i < values.length; i += stride) {
+                const v = values[i];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+            if (isFinite(min) && isFinite(max)) score += (max - min);
+        }
+    });
+    return score;
+}
+
+// Devuelve { walkClip, idleClip } eligiendo de la forma más confiable posible
+// entre TODOS los clips que trae gltf.animations.
+function pickWalkAndIdleClips(clips) {
+    if (!clips || clips.length === 0) return { walkClip: null, idleClip: null };
+    if (clips.length === 1) return { walkClip: clips[0], idleClip: null };
+
+    let walkClip = findClipByKeywords(clips, CONFIG.model.characterWalkClipKeywords);
+    let idleClip = findClipByKeywords(clips, CONFIG.model.characterIdleClipKeywords);
+    if (idleClip === walkClip) idleClip = null; // por si la misma palabra calzó con ambos
+
+    // Si falta alguno de los dos, usamos el "puntaje de movimiento" para adivinar
+    // entre los clips que todavía no fueron asignados por nombre.
+    if (!walkClip || !idleClip) {
+        const remaining = clips.filter((c) => c !== walkClip && c !== idleClip);
+        const scored = remaining
+            .map((clip) => ({ clip, score: computeClipMotionScore(clip) }))
+            .sort((a, b) => b.score - a.score); // mayor movimiento primero
+
+        if (!walkClip && scored.length > 0) {
+            walkClip = scored.shift().clip; // el de más movimiento = caminar
+        }
+        if (!idleClip && scored.length > 0) {
+            idleClip = scored.shift().clip; // el de menos movimiento restante = quieto
+        }
+    }
+
+    // Última red de seguridad: si por algún motivo seguimos sin walkClip, usamos
+    // cualquier clip disponible antes que dejar al personaje sin animación.
+    if (!walkClip) walkClip = clips[0];
+    if (idleClip === walkClip) idleClip = null;
+
+    return { walkClip, idleClip };
+}
+
 // ============================================
 // CARGA DE MODELOS GLB
 // ============================================
@@ -564,22 +776,39 @@ loader.load(
         model.traverse((child) => {
             if (child.isMesh) collisionMeshes.push(child);
         });
-        // --- Recolectar mallas de piso (colisión) ---
-        const floorNodeNames = ['piso', 'piso1', 'piso2', 'piso3'];
-        floorNodeNames.forEach((name) => {
-            const node = model.getObjectByName(name);
-            if (!node) {
-                console.warn(`⚠️ Nodo de piso "${name}" no encontrado — sin colisión para ese piso.`);
-                return;
+        // --- Recolectar mallas de colisión de piso/gradas (nombres que empiezan con "COL_") ---
+        // Estos objetos SON la colisión real (piso, gradas, rampas, etc.) para que el
+        // personaje camine sobre ellos, pero deben quedar invisibles: normalmente ya
+        // existe geometría visual (la del edificio) justo encima o en el mismo lugar.
+        // Ocultarlos NO les quita la colisión: Three.js sigue haciendo raycast sobre
+        // mallas con visible = false, así que el volumen de colisión sigue activo.
+        model.traverse((child) => {
+            if (!child.isMesh) return;
+            if (/^col_/i.test(child.name)) {
+                floorMeshes.push(child);
+                child.visible = false;
+                child.castShadow = false;
+                child.receiveShadow = false;
             }
-            node.traverse((child) => {
-                if (child.isMesh) floorMeshes.push(child);
-            });
         });
         if (floorMeshes.length === 0) {
-            console.warn('⚠️ No se encontró ningún nodo de piso nombrado ("piso"/"piso1"/"piso2"/"piso3"). Se usará todo el edificio como respaldo para la colisión de piso, para que el personaje no caiga al vacío.');
+            console.warn('⚠️ No se encontró ningún objeto con nombre "COL_*" (ej. COL_piso, COL_gradas). Se usará todo el edificio como respaldo para la colisión de piso, para que el personaje no caiga al vacío.');
         }
-        console.log(`✅ Colisión de piso activa en ${floorMeshes.length || collisionMeshes.length} malla(s).`);
+        console.log(`✅ Colisión de piso/gradas activa en ${floorMeshes.length || collisionMeshes.length} malla(s)${floorMeshes.length ? ` (${floorMeshes.length} oculta(s) por ser "COL_*")` : ''}.`);
+
+        // --- Recolectar muros ("pared*") para colisión real de movimiento del personaje ---
+        // A diferencia del piso, estas mallas SÍ permanecen visibles (son las paredes
+        // reales del edificio); sólo se usan además como barrera para que el personaje
+        // no las atraviese al caminar (ver tryMoveHorizontal / updatePlayer).
+        model.traverse((child) => {
+            if (child.isMesh && /^pared/i.test(child.name)) {
+                wallMeshes.push(child);
+            }
+        });
+        if (wallMeshes.length === 0) {
+            console.warn('⚠️ No se encontró ningún objeto con nombre "pared*". El personaje podrá atravesar los muros.');
+        }
+        console.log(`✅ Colisión de muros activa en ${wallMeshes.length} malla(s) ("pared*").`);
         // --- Buscar el marcador de spawn dentro del modelo ---
         const spawnNode = model.getObjectByName(CONFIG.model.spawnNodeName);
         if (spawnNode) {
@@ -630,7 +859,14 @@ loader.load(
         // --- Construir puertas/portones interactivos (abrir/cerrar con E) ---
         CONFIG.doors.forEach((def) => {
             const node = model.getObjectByName(def.name);
-            if (!node) return;
+            if (!node) {
+                // 🔧 FIX: antes esto fallaba EN SILENCIO (igual que el bug del nombre
+                // "porton._de" con un punto de más) y no había forma de saber, sin leer
+                // el código, por qué una puerta o portón "no hacía nada". Ahora se avisa
+                // igual que con los hotspots.
+                console.warn(`⚠️ Puerta/portón "${def.name}" no encontrado en el GLB — revisa que el nombre coincida exactamente con el del objeto en Blender/el .glb. Se omite.`);
+                return;
+            }
             const worldPos = new THREE.Vector3();
             node.getWorldPosition(worldPos);
 
@@ -641,17 +877,34 @@ loader.load(
                 isOpen: false,
                 angle: 0,
                 baseRotationY: node.rotation.y,
+                openSign: def.flip ? -1 : 1, // permite invertir el sentido de giro puerta por puerta
             };
             doors.push(doorData);
             interactables.push({ type: 'door', position: doorData.position, ref: doorData });
         });
+        console.log(`✅ ${doors.length} puerta(s)/portón(es) interactivo(s) listos: ${doors.map((d) => d.node.name).join(', ') || '(ninguno)'}`);
+
+        // --- Construir computadora(s) interactiva(s): reproducen la radio en vivo ---
+        CONFIG.computers.forEach((def) => {
+            const node = model.getObjectByName(def.name);
+            if (!node) {
+                console.warn(`⚠️ Computadora "${def.name}" no encontrada en el GLB — se omite.`);
+                return;
+            }
+            const worldPos = new THREE.Vector3();
+            node.getWorldPosition(worldPos);
+            const computerData = { node, label: def.label, position: worldPos.clone() };
+            computers.push(computerData);
+            interactables.push({ type: 'computer', position: computerData.position, ref: computerData });
+        });
+        console.log(`✅ ${computers.length} computadora(s) interactiva(s) lista(s): ${computers.map((c) => c.node.name).join(', ') || '(ninguna)'}`);
 
         // NOTA SOBRE COLISIONES:
-        // Se retiraron los colliders AABB (piso/paredes) del recorrido de vuelo libre
-        // original — ver el bloque de MOVIMIENTO más abajo. Sin embargo, para el modo
-        // de personaje en tercera persona SÍ se usa un raycast contra la geometría real
-        // del edificio, tanto para el piso (getFloorHeightBelow) como para que la cámara
-        // no atraviese paredes (ver placeCharacterAndCamera).
+        // El piso/gradas ("COL_*") y la cámara usan raycast contra la geometría real
+        // del edificio (ver getFloorHeightBelow y placeCharacterAndCamera). Los muros
+        // ("pared*") ahora también bloquean el movimiento horizontal del personaje
+        // mediante raycast a varias alturas (ver tryMoveHorizontal / updatePlayer),
+        // permitiendo además "deslizarse" al chocar en diagonal contra un muro.
 
         // --- Construir la curva del recorrido cinemático guiado ---
         tourCurves = buildTourKeyframes(buildingBox, spawnPoint);
@@ -753,43 +1006,70 @@ loader.load(
         if (gltf.animations && gltf.animations.length > 0) {
             characterMixer = new THREE.AnimationMixer(model);
 
-            const findClip = (keyword) => gltf.animations.find(
-                (clip) => clip.name.toLowerCase().includes(keyword.toLowerCase())
-            );
+            // 🔧 FIX PRINCIPAL: antes se usaba sólo `find(name => includes('walk'))` /
+            // `includes('idle')`, y si ninguno de los clips tenía esas palabras EXACTAS en
+            // inglés, "walkClip" terminaba siendo `gltf.animations[0]` sin más — que podía
+            // ser cualquier cosa (una pose de reposo, un clip vacío, etc.). Eso es lo que
+            // producía al personaje "congelado" en una única pose sin importar si estabas
+            // caminando o quieto. Ahora se prueban palabras clave en varios idiomas y,
+            // si aun así no hay coincidencia, se elige por cuánto se mueve cada clip.
+            const { walkClip, idleClip } = pickWalkAndIdleClips(gltf.animations);
 
-            // Buscamos un clip de "caminar" primero (es el que sí o sí necesitamos).
-            const walkClip = findClip(CONFIG.model.characterWalkClip) || gltf.animations[0];
-            // Sólo tomamos un clip de "quieto" si es un clip DISTINTO al de caminar.
-            // Si personaje.glb sólo trae una animación (la de caminar), no forzamos
-            // nada como "idle": el personaje simplemente queda estático (pose base)
-            // cuando no se presiona ninguna tecla de movimiento.
-            const idleClipCandidate = findClip(CONFIG.model.characterIdleClip);
-            const idleClip = (idleClipCandidate && idleClipCandidate !== walkClip)
-                ? idleClipCandidate
-                : gltf.animations.find((clip) => clip !== walkClip) || null;
-
-            // Muchas animaciones de caminar (típicamente exportadas de Mixamo) traen
-            // "root motion": el propio clip desplaza al personaje hacia adelante en
-            // cada ciclo. Como nosotros ya lo movemos con WASD, eso se traduce en que
-            // camina de más y luego "salta" hacia atrás al reiniciar el loop. Aquí
-            // quitamos ese desplazamiento neto (X/Z) de cada track de posición, dejando
-            // sólo el vaivén natural de la animación (piernas, rebote en Y, etc.).
-            stripRootMotion(walkClip);
-            if (idleClip) stripRootMotion(idleClip);
-
-            characterActions.walk = characterMixer.clipAction(walkClip);
-            if (idleClip) {
-                characterActions.idle = characterMixer.clipAction(idleClip);
-                characterActions.idle.play();
-                currentCharacterAction = characterActions.idle;
+            if (!walkClip) {
+                console.warn('⚠️ personaje.glb trae animaciones pero no se pudo identificar ningún clip de caminar utilizable.');
             } else {
-                characterActions.idle = null; // no hay clip de "quieto": se maneja pausando el de caminar
-                currentCharacterAction = null;
-            }
+                // Muchas animaciones de caminar (típicamente exportadas de Mixamo) traen
+                // "root motion": el propio clip desplaza al personaje hacia adelante en
+                // cada ciclo. Como nosotros ya lo movemos con WASD, eso se traduce en que
+                // camina de más y luego "salta" hacia atrás al reiniciar el loop. Aquí
+                // quitamos ese desplazamiento neto (X/Z) de cada track de posición, dejando
+                // sólo el vaivén natural de la animación (piernas, rebote en Y, etc.).
+                stripRootMotion(walkClip);
+                if (idleClip) stripRootMotion(idleClip);
+                // Cierra el loop de cada clip para que no "tironee"/teletransporte
+                // levemente cada vez que reinicia el ciclo (ver comentario de la función).
+                makeClipLoopSeamless(walkClip);
+                if (idleClip) makeClipLoopSeamless(idleClip);
 
-            console.log(`✅ Personaje cargado con ${gltf.animations.length} animación(es). Walk: "${walkClip.name}"${idleClip ? ` | Idle: "${idleClip.name}"` : ' | Sin clip de idle: quieto = pose base'}`);
+                characterActions.walk = characterMixer.clipAction(walkClip);
+                // Dejamos la acción de caminar siempre "armada" (enabled + jugando con peso 0)
+                // desde el arranque, en vez de crearla y recién llamar a .play() la primera
+                // vez que se presiona una tecla. Este patrón (recomendado por los propios
+                // ejemplos de three.js para crossfades) evita cualquier caso raro de
+                // `.isRunning()` / `.paused` que pudiera hacer que el mixer "no avance" y el
+                // personaje se vea congelado aunque técnicamente la acción esté "reproduciéndose".
+                characterActions.walk.enabled = true;
+                characterActions.walk.setEffectiveWeight(0);
+                characterActions.walk.play();
+
+                if (idleClip) {
+                    characterActions.idle = characterMixer.clipAction(idleClip);
+                    characterActions.idle.enabled = true;
+                    characterActions.idle.setEffectiveWeight(1);
+                    characterActions.idle.play();
+                    currentCharacterAction = characterActions.idle;
+                } else {
+                    // No hay clip de "quieto" independiente: el personaje se queda
+                    // congelado en el frame donde se pausa el clip de caminar (ver
+                    // setCharacterAction) en vez de forzar un clip que no existe.
+                    characterActions.idle = null;
+                    characterActions.walk.setEffectiveWeight(1);
+                    characterActions.walk.paused = true;
+                    currentCharacterAction = characterActions.walk;
+                }
+
+                characterHasAnimations = true;
+                console.log(`✅ Personaje cargado con ${gltf.animations.length} animación(es). Walk: "${walkClip.name}"${idleClip ? ` | Idle: "${idleClip.name}"` : ' | Sin clip de idle: quieto = pose congelada del clip de caminar'}`);
+            }
         } else {
-            console.warn('⚠️ personaje.glb no trae animaciones (gltf.animations vacío).');
+            // 🔧 Sin esto, antes no había NINGÚN indicio visible (sólo un console.warn)
+            // de que el personaje jamás iba a animarse porque el .glb simplemente no
+            // trae clips. Ahora, además de avisar más fuerte, se activa un pequeño
+            // "bamboleo" procedural (ver updateProceduralWalkFallback) para que al
+            // menos se note visualmente cuándo el personaje está caminando, mientras
+            // se re-exporta el modelo con las animaciones incluidas.
+            console.warn('⚠️ personaje.glb no trae animaciones (gltf.animations vacío). Revisa que, al exportar el .glb desde Blender/otro programa, la opción de incluir "Animations"/"Acciones" esté activada.');
+            characterHasAnimations = false;
         }
 
         assetsLoaded++;
@@ -809,31 +1089,52 @@ loader.load(
     }
 );
 
-// Cambia entre la animación "caminar" y quedarse quieto. Si no existe un
-// clip de "quieto" independiente, en vez de forzar un clip equivocado,
-// simplemente pausamos/reanudamos la animación de caminar.
-function setCharacterAction(name) {
-    if (name === 'walk') {
-        if (currentCharacterAction !== characterActions.walk) {
-            if (currentCharacterAction) currentCharacterAction.fadeOut(0.15);
-            characterActions.walk.reset().fadeIn(0.15).play();
-            currentCharacterAction = characterActions.walk;
-        }
-        characterActions.walk.paused = false;
+// Cambia entre la animación "caminar" y quedarse quieto, usando pesos
+// (crossfade "manual" pero robusto) en vez de encadenar fadeIn/fadeOut/play
+// sueltos. Ambas acciones (si existen) están SIEMPRE en reproducción desde
+// que se cargó el modelo (ver arriba); aquí sólo movemos su "weight" de 0 a 1
+// y viceversa, que es la forma que three.js recomienda para evitar saltos o
+// congelamientos raros.
+let walkWeightTarget = 0; // 0 = quieto, 1 = caminando
+const ACTION_FADE_SPEED = 6; // qué tan rápido se hace el crossfade (por segundo)
+
+function setCharacterAction(name, delta) {
+    if (!characterHasAnimations || !characterActions.walk) return;
+    walkWeightTarget = name === 'walk' ? 1 : 0;
+
+    if (!characterActions.idle) {
+        // Sin clip de "quieto": simplemente pausamos/reanudamos el de caminar
+        // exactamente donde estaba (nunca lo reseteamos), para no producir el
+        // "salto"/teletransporte de pose que ya se corrigió antes.
+        characterActions.walk.paused = walkWeightTarget === 0;
         return;
     }
 
-    // name === 'idle'
-    if (characterActions.idle) {
-        if (currentCharacterAction !== characterActions.idle) {
-            if (currentCharacterAction) currentCharacterAction.fadeOut(0.25);
-            characterActions.idle.reset().fadeIn(0.25).play();
-            currentCharacterAction = characterActions.idle;
-        }
-    } else if (characterActions.walk) {
-        // Sin clip de "quieto": congelamos la animación de caminar donde vaya
-        // en vez de forzar un clip que no existe.
-        characterActions.walk.paused = true;
+    const step = Math.min(1, ACTION_FADE_SPEED * (delta || 0.016));
+    const currentWalkWeight = characterActions.walk.getEffectiveWeight();
+    const newWalkWeight = currentWalkWeight + (walkWeightTarget - currentWalkWeight) * step;
+    characterActions.walk.setEffectiveWeight(newWalkWeight);
+    characterActions.idle.setEffectiveWeight(1 - newWalkWeight);
+}
+
+// Fallback de emergencia SOLO quando personaje.glb no trae ninguna animación
+// utilizable: aplica un pequeño balanceo procedural (sube/baja + leve giro de
+// cadera) sobre characterGroup mientras se camina, para que al menos haya
+// alguna señal visual de movimiento en vez de un maniquí completamente rígido.
+// Esto es un parche temporal — lo correcto es re-exportar personaje.glb con
+// sus animaciones incluidas.
+function updateProceduralWalkFallback(delta, isWalking, isRunning) {
+    if (characterHasAnimations) return;
+    const model = characterGroup.children[0];
+    if (!model) return;
+
+    if (isWalking) {
+        proceduralWalkPhase += delta * (isRunning ? 10 : 6);
+        model.position.y = Math.abs(Math.sin(proceduralWalkPhase)) * 0.05;
+        model.rotation.z = Math.sin(proceduralWalkPhase) * 0.03;
+    } else {
+        model.position.y += (0 - model.position.y) * Math.min(1, delta * 8);
+        model.rotation.z += (0 - model.rotation.z) * Math.min(1, delta * 8);
     }
 }
 
@@ -1106,6 +1407,8 @@ document.addEventListener('keydown', (e) => {
             } else if (aimedInteractable) {
                 if (aimedInteractable.type === 'door') {
                     toggleDoor(aimedInteractable.ref);
+                } else if (aimedInteractable.type === 'computer') {
+                    toggleRadioStream();
                 } else if (aimedInteractable.type === 'info') {
                     openHotspotPanel(aimedInteractable.ref);
                 }
@@ -1169,13 +1472,18 @@ function lerpAngle(a, b, t) {
 }
 
 const _cameraRaycaster = new THREE.Raycaster();
+const _cameraBackward = new THREE.Vector3();
+const _cameraAnchor = new THREE.Vector3();
+const _cameraLookDir = new THREE.Vector3();
+const _cameraLookTarget = new THREE.Vector3();
 
-// Coloca a personaje.glb en el suelo bajo player.position y ubica la cámara
-// detrás de él, en tercera persona, mirando siempre hacia el personaje.
-// La cámara también colisiona con la geometría del edificio: si una pared u
-// otro objeto se interpone entre el personaje y la posición deseada de la
-// cámara, ésta se acerca hasta justo antes del obstáculo (como en la mayoría
-// de juegos en tercera persona), en vez de atravesarlo.
+// Coloca a personaje.glb en el suelo bajo player.position y ancla la cámara
+// DETRÁS de él, en tercera persona — estilo "God of War" (2018): la cámara
+// vive en un punto fijo, bajo, justo detrás de las rodillas del personaje.
+// Al mover el mouse arriba/abajo, la cámara NO se traslada ni orbita: sólo
+// GIRA sobre ese mismo punto (como girar la cabeza), mirando más arriba o
+// más abajo. Cuando el personaje gira (yaw), el ancla sí se recalcula cada
+// frame para seguir estando detrás de él.
 function placeCharacterAndCamera() {
     // player.position representa la altura de "ojos"; los pies del personaje
     // van CONFIG.player.eyeHeight más abajo.
@@ -1183,28 +1491,18 @@ function placeCharacterAndCamera() {
     characterGroup.position.set(player.position.x, groundY, player.position.z);
     characterGroup.rotation.y = characterFacingYaw + CONFIG.model.characterYawOffset;
 
-    // Punto sobre el que orbita y mira la cámara (altura del "pecho/cabeza" del personaje).
-    const focusPoint = new THREE.Vector3(
-        player.position.x,
-        groundY + CONFIG.player.cameraLookHeight,
-        player.position.z
-    );
-
-    // Dirección deseada de la cámara respecto al personaje (yaw = hacia dónde
-    // mira/camina, pitch = inclinación vertical, ambos controlados con el mouse).
-    const horizDist = Math.cos(player.pitch);
-    const vertOffset = Math.sin(player.pitch);
-    const dir = new THREE.Vector3(
-        Math.sin(player.yaw) * horizDist,
-        vertOffset,
-        Math.cos(player.yaw) * horizDist
-    ).normalize();
+    // "Atrás" del personaje = opuesto a hacia dónde mira/camina (mismo yaw
+    // que usa updatePlayer para "forward").
+    _cameraBackward.set(Math.sin(player.yaw), 0, Math.cos(player.yaw));
 
     let finalDistance = currentCameraDistance;
 
     // --- Colisión de cámara contra la geometría real del edificio ---
+    // Si hay un muro entre el personaje y el punto donde debería anclarse la
+    // cámara, la acercamos justo antes del obstáculo (sin atravesarlo).
     if (collisionMeshes.length > 0) {
-        _cameraRaycaster.set(focusPoint, dir);
+        const rayOrigin = new THREE.Vector3(player.position.x, groundY + CONFIG.player.cameraHeight, player.position.z);
+        _cameraRaycaster.set(rayOrigin, _cameraBackward);
         _cameraRaycaster.far = currentCameraDistance;
         _cameraRaycaster.near = 0.01;
         const hits = _cameraRaycaster.intersectObjects(collisionMeshes, true);
@@ -1216,30 +1514,145 @@ function placeCharacterAndCamera() {
         }
     }
 
-    camera.position.copy(focusPoint).addScaledVector(dir, finalDistance);
-    camera.lookAt(focusPoint);
+    // Ancla fija: altura constante ("rodillas"), detrás del personaje según su yaw actual.
+    _cameraAnchor.set(
+        player.position.x + _cameraBackward.x * finalDistance,
+        groundY + CONFIG.player.cameraHeight,
+        player.position.z + _cameraBackward.z * finalDistance
+    );
+    camera.position.copy(_cameraAnchor);
+
+    // La cámara sólo ROTA desde ese punto fijo: yaw = misma dirección en la
+    // que mira/camina el personaje; pitch = control vertical del mouse, más
+    // un sesgo fijo hacia arriba para encuadrar bien al personaje.
+    const effectivePitch = player.pitch + CONFIG.player.cameraBasePitch;
+    _cameraLookDir.set(
+        -Math.sin(player.yaw) * Math.cos(effectivePitch),
+        Math.sin(effectivePitch),
+        -Math.cos(player.yaw) * Math.cos(effectivePitch)
+    );
+    _cameraLookTarget.copy(camera.position).add(_cameraLookDir);
+    camera.lookAt(_cameraLookTarget);
 }
 const _floorRaycaster = new THREE.Raycaster();
 const _floorDownVec = new THREE.Vector3(0, -1, 0);
 
 // Busca la altura del piso justo debajo de (x, z), lanzando un rayo hacia
-// abajo desde un poco arriba de refY. Usa las mallas nombradas "piso*" si
-// existen; si el modelo no trae ningún nodo de piso, usa como respaldo TODA
-// la geometría del edificio, para que siempre haya algo bajo los pies del
-// personaje y nunca caiga al vacío. Devuelve null sólo si de verdad no hay
-// ninguna geometría debajo.
-function getFloorHeightBelow(x, z, refY) {
+// abajo desde un poco arriba de refY. Usa las mallas "COL_*" (piso, gradas,
+// rampas...) si existen; si el modelo no trae ningún nodo "COL_*", usa como
+// respaldo TODA la geometría del edificio, para que siempre haya algo bajo
+// los pies del personaje y nunca caiga al vacío. Devuelve null sólo si de
+// verdad no hay ninguna geometría debajo.
+//
+// `upSearch`: cuánto más ARRIBA de refY empieza a buscar el rayo. Con un
+// edificio de varios pisos esto es importante: si vas bajando una grada y
+// upSearch es demasiado grande (p. ej. 2m), el rayo puede arrancar por
+// ENCIMA de la losa del piso de arriba y "engancharse" con ella en vez de
+// seguir bajando hasta el escalón real — eso es lo que se veía como
+// "teletransportarse" al piso de arriba al bajar las gradas. Por eso, para
+// el chequeo continuo mientras se camina se usa un upSearch chico (sólo lo
+// necesario para subir un escalón), y sólo en el reposicionamiento inicial
+// (spawn/reset, donde sí puede haber una diferencia grande de altura que
+// salvar) se usa uno más generoso.
+function getFloorHeightBelow(x, z, refY, upSearch = 2) {
     const meshes = floorMeshes.length > 0 ? floorMeshes : collisionMeshes;
     if (meshes.length === 0) return null;
-    _floorRaycaster.set(new THREE.Vector3(x, refY + 2, z), _floorDownVec);
-    _floorRaycaster.far = 30;
+    _floorRaycaster.set(new THREE.Vector3(x, refY + upSearch, z), _floorDownVec);
+    _floorRaycaster.far = 30 + upSearch;
     const hits = _floorRaycaster.intersectObjects(meshes, true);
-    return hits.length > 0 ? hits[0].point.y : null;
+    if (hits.length === 0) return null;
+
+    if (CONFIG.player.floorDebug && hits[0].point.y > refY + 0.02) {
+        // El piso encontrado está ARRIBA de donde están tus pies ahora mismo:
+        // este es justo el caso sospechoso de "teletransporte hacia arriba".
+        // Si esto se imprime constantemente al bajar una grada, la malla que
+        // aparece acá (normalmente el "COL_piso" del piso de arriba) casi
+        // seguro NO tiene un hueco real cortado en la geometría donde pasa
+        // la escalera — el mismo tipo de problema que el hueco de la puerta.
+        console.log(`🧭 [floorDebug] Piso encontrado ARRIBA de los pies: "${hits[0].object.name}" en y=${hits[0].point.y.toFixed(2)} (pies en y=${refY.toFixed(2)})`);
+    }
+
+    return hits[0].point.y;
+}
+
+// ============================================
+// COLISIÓN DE MUROS ("pared*")
+// ============================================
+const _wallRaycaster = new THREE.Raycaster();
+// Alturas (en metros, sobre los PIES del personaje) a las que se lanza un
+// rayo para comprobar si hay un muro en el camino. Varias alturas cubren
+// piernas/torso/cabeza y evitan que el personaje "pase por debajo" o "por
+// encima" de un muro fino mal detectado a una sola altura.
+const _wallCheckHeights = [0.35, 1.0, 1.6];
+const _wallNormal2D = new THREE.Vector3();
+
+// Lanza rayos horizontales (a varias alturas) desde `feetPos` en la
+// dirección `dir` (normalizada, sólo X/Z) hasta `distance` metros. Devuelve
+// el impacto más cercano entre todas las alturas, o null si no hay muro.
+function raycastWalls(feetPos, dir, distance) {
+    if (wallMeshes.length === 0 || distance <= 0.0001) return null;
+    let closest = null;
+    for (const h of _wallCheckHeights) {
+        _wallRaycaster.set(new THREE.Vector3(feetPos.x, feetPos.y + h, feetPos.z), dir);
+        _wallRaycaster.near = 0;
+        _wallRaycaster.far = distance;
+        const hits = _wallRaycaster.intersectObjects(wallMeshes, true);
+        if (hits.length > 0 && (!closest || hits[0].distance < closest.distance)) {
+            closest = hits[0];
+        }
+    }
+    return closest;
+}
+
+// Intenta mover al personaje `moveVec` (X/Z) desde `feetPos`, respetando los
+// muros ("pared*"). A diferencia de probar X y Z por separado (lo cual hacía
+// que el personaje se trabara en el borde de un hueco/puerta aunque el
+// camino real en diagonal estuviera libre), primero se prueba el
+// desplazamiento COMPLETO en su dirección real. Sólo si ese camino directo
+// de verdad choca contra un muro, se desliza a lo largo de él usando la
+// normal del impacto (igual que en un juego en 3ª persona real), en vez de
+// bloquear por eje.
+function tryMoveHorizontal(feetPos, moveVec) {
+    const distance = Math.hypot(moveVec.x, moveVec.z);
+    if (distance < 0.0001) return moveVec.clone();
+
+    const dir = new THREE.Vector3(moveVec.x, 0, moveVec.z).normalize();
+    const checkDist = distance + CONFIG.player.wallCollisionBuffer;
+    const hit = raycastWalls(feetPos, dir, checkDist);
+
+    // Si no hay impacto, o el muro más cercano está más lejos de lo que nos
+    // vamos a mover ESTE frame (sólo dentro del margen de seguridad), el
+    // camino está libre: nos movemos completo (incluida la diagonal).
+    if (!hit || hit.distance >= distance) return moveVec.clone();
+
+    if (CONFIG.player.wallCollisionDebug) {
+        console.log(`🧱 Bloqueado por "${hit.object.name}" a ${hit.distance.toFixed(2)}m`);
+    }
+
+    // Normal horizontal del impacto, para deslizar "a lo largo" de la pared
+    // en vez de frenar en seco.
+    _wallNormal2D.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+    _wallNormal2D.y = 0;
+    if (_wallNormal2D.lengthSq() < 0.0001) return new THREE.Vector3(0, 0, 0);
+    _wallNormal2D.normalize();
+
+    const slideVec = moveVec.clone().sub(_wallNormal2D.clone().multiplyScalar(moveVec.dot(_wallNormal2D)));
+    const slideDist = Math.hypot(slideVec.x, slideVec.z);
+    if (slideDist < 0.0001) return new THREE.Vector3(0, 0, 0);
+
+    const slideDir = new THREE.Vector3(slideVec.x, 0, slideVec.z).normalize();
+    const slideHit = raycastWalls(feetPos, slideDir, slideDist + CONFIG.player.wallCollisionBuffer);
+    if (!slideHit || slideHit.distance >= slideDist) return slideVec;
+
+    return new THREE.Vector3(0, 0, 0); // ni deslizando hay paso: se queda quieto
 }
 
 function updatePlayer(delta) {
     if (!modelLoaded || mode !== 'fly' || cameraMode !== 'manual') return;
-
+    if (panelOpen) {
+        player.velocity.set(0, 0, 0);
+        return;
+    }
     const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
     // "right" = forward rotado 90° en sentido horario (visto desde arriba), para
     // que la tecla D mueva realmente hacia la derecha y A hacia la izquierda.
@@ -1275,13 +1688,24 @@ function updatePlayer(delta) {
         player.velocity.y = Math.max(player.velocity.y, -CONFIG.player.maxFallSpeed);
     }
 
-    player.position.x += player.velocity.x * delta;
-    player.position.z += player.velocity.z * delta;
+    // --- Movimiento horizontal con colisión real de muros ("pared*") ---
+    // Se prueba el desplazamiento real (incluida la diagonal) de una sola
+    // vez; si choca, desliza a lo largo del muro según su normal. Esto es lo
+    // que permite cruzar un hueco/puerta angosto caminando en diagonal, sin
+    // quedar atrapado en el borde como pasaba probando X y Z por separado.
+        const feetPos = new THREE.Vector3(player.position.x, player.position.y - CONFIG.player.eyeHeight, player.position.z);
+    const prevFeetY = feetPos.y; // 🔧 altura de los pies ANTES de moverse
+    const desiredMove = new THREE.Vector3(player.velocity.x * delta, 0, player.velocity.z * delta);
+    const allowedMove = tryMoveHorizontal(feetPos, desiredMove);
+    player.position.x += allowedMove.x;
+    player.position.z += allowedMove.z;
     player.position.y += player.velocity.y * delta;
 
-    // --- Colisión de piso: no atravesar piso/piso1/piso2/piso3 (o el edificio de respaldo) ---
+    // --- Colisión de piso (barrida) ---
+    // 🔧 El rayo parte desde la altura ANTERIOR de los pies, no la nueva. Así,
+    // aunque en un frame el personaje baje mucho, el piso que cruzó sigue siendo detectado.
     const feetY = player.position.y - CONFIG.player.eyeHeight;
-    const floorY = getFloorHeightBelow(player.position.x, player.position.z, feetY);
+    const floorY = getFloorHeightBelow(player.position.x, player.position.z, prevFeetY, CONFIG.player.floorStepUpAllowance);
     if (floorY !== null && feetY <= floorY + CONFIG.player.groundSnapMargin) {
         player.position.y = floorY + CONFIG.player.eyeHeight;
         if (player.velocity.y < 0) player.velocity.y = 0;
@@ -1309,36 +1733,19 @@ function updatePlayer(delta) {
 
     // Animación: sólo "camina" mientras se presiona una tecla de movimiento (W/A/S/D)
     if (characterMixer) {
-        setCharacterAction(isWalking ? 'walk' : 'idle');
+        setCharacterAction(isWalking ? 'walk' : 'idle', delta);
         // La animación de caminar avanza más rápido si el jugador está corriendo (Shift)
-        characterActions.walk.timeScale = isRunning ? 1.6 : 1.0;
+        if (characterActions.walk) {
+            characterActions.walk.timeScale = isRunning ? 1.6 : 1.0;
+        }
     }
+    // Si el .glb no trae animaciones utilizables, al menos se ve un pequeño
+    // bamboleo procedural mientras se camina (ver función más arriba).
+    updateProceduralWalkFallback(delta, isWalking, isRunning);
 
     const speedMag = Math.sqrt(player.velocity.x**2 + player.velocity.y**2 + player.velocity.z**2);
     document.getElementById('speed-value').textContent = speedMag.toFixed(1);
     document.getElementById('alt-value').textContent = player.position.y.toFixed(1);
-}
-
-// ============================================
-// MOVIMIENTO LIBRE, SIN COLLIDERS DE PAREDES
-// ============================================
-// A propósito no se reintrodujeron colliders AABB de paredes: con cajas
-// alineadas a los ejes (no a la geometría real del edificio) es muy fácil que
-// el jugador quede atrapado, vibre contra una esquina o se tope con una caja
-// invisible que no coincide con la forma real del modelo. El movimiento
-// horizontal del personaje sigue siendo libre; lo que sí se añadió es
-// colisión de PISO (para no caer al vacío, con respaldo si el modelo no trae
-// nodos "piso*") y colisión de CÁMARA (para que no atraviese paredes al
-// orbitar en tercera persona), ambas por raycasting contra la geometría real.
-//
-// Si más adelante quieres colisión de paredes para el propio personaje, mi
-// recomendación es usar la librería "three-mesh-bvh" para construir un BVH
-// sobre la malla real (no una caja aproximada) y resolver la colisión con
-// una cápsula para el jugador (capsule vs. BVH) — es el enfoque estándar en
-// three.js y evita el "temblor"/atasco típico de las cajas AABB mal ajustadas.
-function tryMovePlayerAxis(axis, delta) {
-    player.position[axis] += delta;
-    return true;
 }
 
 // ============================================
@@ -1349,11 +1756,34 @@ function toggleDoor(door) {
     showToast(door.isOpen ? `Abriendo ${door.label}...` : `Cerrando ${door.label}...`);
 }
 
+// ============================================
+// COMPUTADORA INTERACTIVA: PRENDE/APAGA LA RADIO EN VIVO
+// ============================================
+function toggleRadioStream() {
+    if (!radioAudio) {
+        radioAudio = new Audio(CONFIG.computer.streamUrl);
+        radioAudio.crossOrigin = 'anonymous';
+        radioAudio.preload = 'none';
+    }
+    if (radioPlaying) {
+        radioAudio.pause();
+        radioPlaying = false;
+        showToast('Radio apagada');
+    } else {
+        radioAudio.play().catch((err) => {
+            console.warn('No se pudo reproducir el stream:', err);
+            showToast('No se pudo conectar con la radio en vivo');
+        });
+        radioPlaying = true;
+        showToast('Sintonizando Radio Nacional de Huanuni FM 94.5...');
+    }
+}
+
 function updateDoors(delta) {
     if (doors.length === 0) return;
     const { openAngle, speed } = CONFIG.doorAnimation;
     doors.forEach((door) => {
-        const target = door.isOpen ? openAngle : 0;
+        const target = door.isOpen ? openAngle * door.openSign : 0;
         door.angle += (target - door.angle) * Math.min(1, speed * delta);
         door.node.rotation.y = door.baseRotationY + door.angle;
     });
@@ -1364,31 +1794,46 @@ function updateDoors(delta) {
 // ============================================
 const _forwardVec = new THREE.Vector3();
 const _toHotspotVec = new THREE.Vector3();
-// Pequeña ventaja para los hotspots informativos frente a puertas cuando
-// ambos están casi igual de alineados con la mira: evita que una puerta
-// cercana "robe" la interacción cuando en realidad se está apuntando a un
-// cuadro/foto/logo que está un poco más arriba o al lado.
-const INFO_AIM_BIAS = 0.035;
+const _screenPos = new THREE.Vector3();
+// Pequeño margen extra a favor de los hotspots informativos frente a puertas
+// cuando ambos están casi igual de centrados en pantalla: evita que una
+// puerta cercana "robe" la interacción cuando en realidad se está apuntando
+// a un cuadro/foto/logo justo al lado.
+const INFO_SCREEN_BIAS = 0.02;
 
+// Sistema de apuntado en ESPACIO DE PANTALLA: en vez de comparar ángulos 3D
+// (poco intuitivo y frágil cuando cámara/personaje/objeto no están alineados
+// de forma "limpia"), proyectamos cada objeto interactuable a coordenadas de
+// pantalla y comprobamos si cae dentro de un pequeño círculo alrededor del
+// crosshair central. Esto es exactamente lo que el jugador ve: "si el punto
+// de mira está sobre el objeto, se puede interactuar" — y ya no depende de
+// la posición/altura exacta del hotspot respecto al personaje.
 function updateInteractionAim() {
     if (interactables.length === 0) return;
 
     camera.getWorldDirection(_forwardVec);
     let best = null;
-    let bestScore = CONFIG.player.interactionCone;
+    let bestScreenDist = Infinity;
 
-    // La distancia se mide desde el personaje (no desde la cámara, que ahora
-    // está detrás de él en tercera persona) para conservar el mismo alcance
-    // de interacción que había en primera persona.
     for (const item of interactables) {
+        // 1) Debe estar razonablemente cerca del personaje.
         _toHotspotVec.copy(item.position).sub(characterGroup.position);
         const dist = _toHotspotVec.length();
         if (dist > CONFIG.player.interactionDistance || dist < 0.001) continue;
-        _toHotspotVec.divideScalar(dist); // normalizar
-        const dot = _toHotspotVec.dot(_forwardVec);
-        const score = dot + (item.type === 'info' ? INFO_AIM_BIAS : 0);
-        if (score > bestScore) {
-            bestScore = score;
+
+        // 2) Debe estar delante de la cámara (si no, "project" da resultados
+        // reflejados y aparecería como si estuviese apuntado por error).
+        _toHotspotVec.copy(item.position).sub(camera.position);
+        if (_toHotspotVec.dot(_forwardVec) <= 0.05) continue;
+
+        // 3) Debe caer cerca del centro de la pantalla (crosshair).
+        _screenPos.copy(item.position).project(camera);
+        const screenDist = Math.hypot(_screenPos.x, _screenPos.y);
+        const maxRadius = CONFIG.player.interactionScreenRadius + (item.type === 'info' ? INFO_SCREEN_BIAS : 0);
+        if (screenDist > maxRadius) continue;
+
+        if (screenDist < bestScreenDist) {
+            bestScreenDist = screenDist;
             best = item;
         }
     }
@@ -1399,6 +1844,8 @@ function updateInteractionAim() {
         if (aimedInteractable.type === 'door') {
             const d = aimedInteractable.ref;
             hint.textContent = `Presiona [E] para ${d.isOpen ? 'cerrar' : 'abrir'} ${d.label}`;
+        } else if (aimedInteractable.type === 'computer') {
+            hint.textContent = `Presiona [E] para ${radioPlaying ? 'apagar' : 'encender'} ${aimedInteractable.ref.label}`;
         } else {
             hint.textContent = `Presiona [E] para ver: ${aimedInteractable.ref.title}`;
         }
@@ -1439,6 +1886,8 @@ function closeHotspotPanel() {
     panelOpen = false;
     document.getElementById('hotspot-panel').classList.remove('visible');
     clearExhibitStage();
+    player.velocity.set(0, 0, 0); // 🔧
+    clock.getDelta();             // 🔧 descarta el tiempo transcurrido con el panel abierto
     if (mode === 'fly' && cameraMode === 'manual') canvas.requestPointerLock();
 }
 
@@ -1569,7 +2018,7 @@ const clock = new THREE.Clock();
 
 function animate() {
     requestAnimationFrame(animate);
-    const delta = clock.getDelta();
+    const delta = Math.min(clock.getDelta(), 0.05);
     const time = clock.getElapsedTime();
 
     if (mode === 'welcome') {
@@ -1655,4 +2104,4 @@ window.addEventListener('resize', () => {
     if (panelOpen) resizeExhibitCanvas();
 });
 
-console.log('🖥️ Experiencia 3D unificada (con recorrido guiado, exhibición 3D real y sin colliders) cargada correctamente.');
+console.log('🖥️ Experiencia 3D unificada (con recorrido guiado, exhibición 3D real, colisión de muros y COL_* invisibles, detección robusta de animaciones y puertas corregidas, computadora con radio en vivo) cargada correctamente.');
