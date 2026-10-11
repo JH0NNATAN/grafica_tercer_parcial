@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 // ============================================
 // CONFIGURACIÓN GLOBAL
@@ -8,6 +11,14 @@ const CONFIG = {
 
     computer: {
         streamUrl: 'https://stream.alfasistemas.com:8030/stream',
+        connectTimeout: 12000, // ms esperando a que empiece a sonar antes de dar el error "tardó demasiado"
+        stallTimeout: 8000,    // ms sin audio (ya sonando) antes de dar el error "se perdió la señal"
+    },
+    // Modo foto: marca de agua y texto para compartir
+    photo: {
+        maxSide: 2048,                      // lado más largo (px) de la imagen final
+        siteLabel: 'radionacionaldehuanuni.com',
+        shareText: 'Mira mi visita a la Radio Nacional Huanuni en 3D 📻',
     },
     computers: [
         { name: 'compu', label: 'la radio' },
@@ -89,8 +100,176 @@ const CONFIG = {
     tour: {
         duration: 18, // segundos que dura el recorrido cinemático guiado
     },
+    // Narración de las historias: voz de locutor leyendo cada capítulo.
+    // 1) Si existe una grabación real (ej. otros/narracion/historia_1.mp3, historia_2.mp3 ...
+    //    teatro_1.mp3 ...) se usa esa: es la mejor opción para un locutor de verdad.
+    // 2) Si no existe, se usa la voz en español del navegador (síntesis de voz).
+    narration: {
+        enabled: true,
+        audioFolder: 'otros/narracion/', // nombres: <historia>_<capitulo>.mp3 → historia_1.mp3, teatro_3.mp3
+        storyIds: ['historia', 'teatro'], // mismo orden que HISTORY_STORIES
+        rate: 0.93,      // velocidad de la voz de síntesis (1 = normal)
+        pitch: 0.8,      // tono: más grave = más "locutor"
+        gapAfter: 1.1,   // segundos de pausa al terminar un capítulo antes de pasar al siguiente
+        musicDuck: 0.18, // la música baja a este % mientras se cuenta una historia
+    },
+    // Guía y progreso: contador de descubrimientos + minimapa
+    guide: {
+        minimapRange: 11,   // metros de escena que se ven desde el centro del minimapa hasta el borde
+        minimapSize: 176,   // px
+    },
     welcome: {
         bannerDuration: 3600, // ms que el texto de bienvenida permanece en pantalla
+    },
+    // Historia narrada: se abre al cruzar el cubo "mostrar_historia" (el cubo queda
+    // invisible; sólo se usa su volumen como zona disparadora). Los textos están
+    // basados en fuentes reales; cada capítulo lleva su referencia al pie en `cite`.
+    history: {
+        nodeName: 'mostrar_historia',
+        margin: 0.35, // margen (m de escena) alrededor del cubo para activar la zona
+        // Puntos de cámara (empties de Blender). Capítulo N usa hist_cam_N (dónde se para la
+        // cámara) y hist_look_N (hacia dónde mira). Sin puntos ni espacios ni .001 en los nombres.
+        camPrefix: 'hist_cam_',
+        lookPrefix: 'hist_look_',
+        // Paneo de izquierda a derecha durante cada capítulo (grados en total). 0 = cámara fija.
+        panDegrees: 30,
+        chapters: [
+            {
+                year: 'XIX', tag: 'Cerro de las Minas', kicker: 'Prólogo · El pueblo del estaño',
+                title: 'Huanuni, <span>Kcoya Orco</span>',
+                text: [
+                    'Antes de que existiera una radio, existía la mina. Según relatos históricos, este lugar se conocía como <strong>Kcoya Orco</strong>, "Cerro de las Minas", y fue descubierto en el siglo XIX.',
+                    'Ya en el siglo XX, el yacimiento perteneció a <strong>Simón I. Patiño</strong>, el gran "barón del estaño", uno de los hombres más ricos del mundo en su tiempo.',
+                ],
+                stats: [{ n: 1919, l: 'el sindicato conquista la jornada de 8 horas' }, { n: 1952, l: 'las minas son nacionalizadas' }],
+                cite: 'Fuente: Upside Down World (s. f.)',
+            },
+            {
+                year: '1947', tag: 'Los mineros toman la palabra', kicker: 'Contexto · Radios mineras de Bolivia',
+                title: 'Nace la <span>voz del minero</span>',
+                text: [
+                    'El <strong>31 de octubre de 1947</strong> se fundó La Voz del Minero, la primera de las radios sindicales mineras de Bolivia: emisoras que pertenecían a los trabajadores y hablaban por ellos.',
+                    'Después llegaron muchas más: Radio 21 de Diciembre, Radio Vanguardia de Colquiri, Radio 16 de Marzo de mina Bolívar… y, en Oruro, Radio Nacional de Huanuni.',
+                ],
+                cite: 'Fuente: Aguirre (s. f.)',
+            },
+            {
+                year: '1952', tag: 'Nacionalización de las minas', kicker: 'Revolución Nacional',
+                title: 'Las minas pasan al <span>Estado</span>',
+                text: [
+                    'El <strong>31 de octubre de 1952</strong>, el gobierno de Víctor Paz Estenssoro expropió las minas de Simón I. Patiño, Carlos Víctor Aramayo y Mauricio Hochschild, los tres "barones del estaño".',
+                    'Se creó la Corporación Minera de Bolivia (COMIBOL) y, con ella, los mineros pasaron a ser trabajadores del Estado.',
+                ],
+                stats: [{ n: 3, l: 'grandes empresas expropiadas' }],
+                fact: 'La primera emisora de Huanuni se llamó Radio 31 de Octubre, una fecha que coincide con la de la nacionalización.',
+                cite: 'Fuentes: Upside Down World (s. f.); Eju.tv (2013)',
+            },
+            {
+                year: '1950', tag: 'Radio 31 de Octubre', kicker: 'El primer micrófono',
+                title: 'Antes de ser Nacional, fue <span>"31 de Octubre"</span>',
+                text: [
+                    'A comienzos de la década de 1950 ya funcionaba en Huanuni una emisora llamada <strong>Radio 31 de Octubre</strong>, propiedad del <strong>Sindicato Mixto de Trabajadores Mineros de Huanuni</strong>.',
+                    'Transmitía desde la sección Hullman. Era pequeña, pero sembró la idea: que los mineros tuvieran su propio medio para comunicarse.',
+                ],
+                cite: 'Fuentes: Villcaez López (s. f.); Resistencias de las radios populares en Bolivia (s. f.)',
+            },
+            {
+                year: '1958', tag: 'Nace Radio Nacional Huanuni', kicker: 'Fundación',
+                title: 'Una radio pagada por <span>los mineros</span>',
+                text: [
+                    'La emisora fue refundada como <strong>Radio Nacional Huanuni</strong>: se le dio ese nombre en 1957 y empezó a funcionar como tal en 1958 (otra fuente la ubica en 1959).',
+                    'Nació por iniciativa de los trabajadores. Cada obrero aportó de su bolsillo para adquirirla, y su mantenimiento se sostuvo con parte del salario de todos. Entre sus impulsores se recuerda al dirigente <strong>Celestino Gutiérrez Navarro</strong> y al secretario de cultura <strong>Hilarión Lima</strong>.',
+                    'Es una radio de <strong>propiedad social</strong>: pertenece a los mineros, no a una empresa ni a un partido.',
+                ],
+                stats: [{ n: 5000, l: 'bolivianos aportó cada obrero', suffix: ' Bs' }, { n: 1, l: 'día de salario para mantenerla', suffix: ' día' }],
+                cite: 'Fuentes: Resistencias de las radios populares en Bolivia (s. f.); La radio Nacional de Huanuni (2007)',
+            },
+            {
+                year: '70s', tag: 'La emisora piloto', kicker: 'Escuela de radialistas',
+                title: 'Su voz <span>cruzó fronteras</span>',
+                text: [
+                    'Huanuni fue considerada la <strong>emisora piloto</strong> de la gran cadena de radios mineras, y su señal en onda corta llegaba más allá de Bolivia: aún se conservan cortinas de los años 70 que anunciaban su canal en onda corta.',
+                    'De sus cabinas salieron reporteros y locutores que luego trabajaron en las capitales del país. Para muchos comunicadores, fue una escuela.',
+                ],
+                fact: 'Hoy quedan pocas radios mineras en pie. Radio Nacional de Huanuni es una de las que sobrevive.',
+                cite: 'Fuentes: La radio Nacional de Huanuni (2007); Wood (s. f.); O\'Connor (2004)',
+            },
+            {
+                year: 'HOY', tag: 'FM 94.5 · Huanuni, Oruro', kicker: 'Un legado vivo',
+                title: 'La voz que <span>sigue en el aire</span>',
+                text: [
+                    'Radio Nacional de Huanuni transmite en <strong>FM 94.5</strong>, las 24 horas, y también por internet. Su lema lo resume todo: <strong>"Voz sindicalista del minero boliviano"</strong>.',
+                    'Más de seis décadas después, sigue acompañando el trabajo, las celebraciones y los duelos de Huanuni. Entrar a esta radio es entrar a la memoria de su gente.',
+                ],
+                stats: [{ n: 94.5, l: 'frecuencia modulada', suffix: ' FM', dec: 1 }, { n: 24, l: 'horas al aire', suffix: ' h' }, { n: 65, l: 'años o más de historia', prefix: '+' }],
+                cite: 'Fuente: Radio Nacional de Huanuni (s. f.)',
+            },
+        ],
+    },
+    // ============================================================
+    // HISTORIA DEL TEATRO (independiente de la historia principal)
+    // Se abre al cruzar el cubo "mostrar_historia_1". Cuenta para qué se usa el teatro:
+    // reuniones, programas solidarios del canal 2 minero y actividades culturales.
+    // Usa sus propios empties de cámara: hist1_cam_N / hist1_look_N (N = número de capítulo).
+    // Si faltan los empties, la cámara se queda donde está y mira al personaje (no da error).
+    // ============================================================
+    historyTheater: {
+        nodeName: 'mostrar_historia_1',
+        margin: 0.35,
+        camPrefix: 'hist1_cam_',
+        lookPrefix: 'hist1_look_',
+        // Plano único: TODOS los capítulos usan hist1_cam_1 / hist1_look_1 (sin cortes ni
+        // fundidos entre capítulos). El paneo de `panDegrees` (izquierda → derecha) se reparte
+        // de forma continua a lo largo de toda la historia, no por capítulo.
+        fixedShot: 1,
+        panDegrees: 30,
+        chapters: [
+            {
+                year: 'TEATRO', tag: 'Un lugar de encuentro', kicker: 'Teatro · Radio Nacional Huanuni',
+                title: 'El teatro de <span>la comunidad minera</span>',
+                text: [
+                    'Este teatro es mucho más que una sala: es el lugar donde Huanuni se junta. Aquí se llevan a cabo <strong>reuniones</strong>, <strong>programas solidarios</strong> y <strong>presentaciones culturales</strong>.',
+                    'Trabajadores, familias, escuelas y artistas comparten el mismo escenario.',
+                ],
+                cite: 'Información sobre el uso del teatro · Radio Nacional Huanuni',
+            },
+            {
+                year: 'REUNIONES', tag: 'Trabajadores y familias', kicker: 'Teatro · Se reúnen los mineros',
+                title: 'Reuniones de los <span>trabajadores mineros</span> y sus familias',
+                text: [
+                    'Aquí se realizan las <strong>reuniones de los trabajadores mineros</strong>, para conversar y tomar decisiones juntos.',
+                    'También se reúnen las <strong>amas de casa de los trabajadores mineros</strong>: las esposas y madres de la comunidad, que siempre han sido parte fundamental de la vida del distrito.',
+                ],
+                cite: 'Información sobre el uso del teatro · Radio Nacional Huanuni',
+            },
+            {
+                year: 'SECCIONES', tag: 'Dirigentes', kicker: 'Teatro · Las voces de cada sección',
+                title: 'Dirigentes de <span>cada sección</span>',
+                text: [
+                    'El teatro también recibe las <strong>reuniones de los dirigentes de cada sección</strong> de la empresa minera Huanuni.',
+                    'Allí se juntan quienes representan a los trabajadores de cada sector de la mina para coordinar, compartir información y llevar la voz de su gente.',
+                ],
+                cite: 'Información sobre el uso del teatro · Radio Nacional Huanuni',
+            },
+            {
+                year: 'SOLIDARIDAD', tag: 'Canal 2 Minero', kicker: 'Teatro · Programas solidarios',
+                title: 'El <span>Canal 2 Minero</span> y la solidaridad',
+                text: [
+                    'El <strong>Canal 2 Minero</strong> utiliza este teatro para sus <strong>programas de solidaridad</strong>.',
+                    'Por ejemplo, para celebrar el <strong>Día del Niño</strong>, la <strong>Navidad</strong> y otras fechas especiales, en las que la comunidad se une para compartir con los más pequeños y las familias.',
+                ],
+                cite: 'Información sobre el uso del teatro · Radio Nacional Huanuni',
+            },
+            {
+                year: 'ESCENARIO', tag: 'Arte y cultura', kicker: 'Teatro · Cultura en vivo',
+                title: 'Un escenario para <span>las escuelas y el folklore</span>',
+                text: [
+                    'Las <strong>escuelas, colegios e instituciones</strong> de Huanuni suben a este escenario con sus <strong>actuaciones de teatro</strong> y sus <strong>coros</strong>.',
+                    'También llegan <strong>grupos folklóricos</strong> que llenan la sala de música y danza, manteniendo viva la identidad cultural de la región.',
+                ],
+                cite: 'Información sobre el uso del teatro · Radio Nacional Huanuni',
+            },
+        ],
     },
     // Puntos de interés: se buscan por nombre de nodo dentro del modelo del edificio.
     // Si un nodo no existe en el .glb, simplemente se omite (sin errores).
@@ -161,23 +340,35 @@ const CONFIG = {
         },
     ],
     // Puertas y portones: se buscan por nombre y se les añade un aviso de
-    // "Presiona E para abrir/cerrar" además de una animación simple de giro.
+    // "Presiona F para abrir/cerrar" además de una animación simple de giro.
     // Nota: ya no bloquean el paso (ver sección de MOVIMIENTO más abajo),
     // es sólo una animación visual de apertura/cierre.
     //
     // `flip: true` invierte el sentido de apertura (por si la puerta gira "hacia adentro"
     // o "hacia la pared" en vez de abrirse limpiamente) — útil cuando el pivote del objeto
     // en el .glb quedó orientado al revés respecto a las demás puertas.
+    // Las puertas ahora giran sobre una BISAGRA calculada automaticamente (un borde de la hoja)
+    // y se abren ALEJANDOSE de quien las abre. Si alguna queda mal, ajustala con estas opciones:
+    //   hinge: 'min' | 'max'   -> en que extremo de la hoja esta la bisagra (la consola dice cual eligio)
+    //   hinge: 'outer' + pair:'otra_hoja' -> bisagra en el extremo mas lejano de la otra hoja (ideal para portones de 2 hojas)
+    //   dir:   'auto' | 1 | -1 -> 'auto' = se abre alejandose de ti; 1 / -1 = sentido fijo
+    //   pivot: 'nombre_empty'  -> (opcional) empty de Blender a usar como bisagra; por defecto se busca 'pivot_<nombre de la hoja>'
+    //   flip:  true            -> invierte el sentido que eligio 'auto'
+    //   hingeInset: 0.2        -> acerca la bisagra 0.2 hacia el centro de la hoja (si pivota mas afuera del poste)
+    //   angle: 95              -> grados de apertura (por defecto doorAnimation.openAngle)
+    // Ejemplo: { name: 'porton_iz', label: 'el porton', hinge: 'max', angle: 110 }
     doors: [
         { name: 'puerta1', label: 'la puerta' },
         { name: 'puerta2', label: 'la puerta' },
         { name: 'puerta3', label: 'la puerta' },
-        { name: 'porton_iz', label: 'el portón' },
+        // Portones: prueba con ` (depuracion) para ver la bisagra (rojo). Si pivota en el lado equivocado: hinge:'max' / 'min'.
+        // Si se abre hacia el lado equivocado: dir: 1 o dir: -1 (fijo) en vez de 'auto'.
+        { name: 'porton_iz', label: 'el portón', hinge: 'outer', pair: 'porton_de', angle: 90 },
         // 🔧 FIX: el nombre tenía un punto de más ("porton._de"), por lo que nunca
         // coincidía con el nodo real del modelo y este portón quedaba siempre omitido
         // (en silencio, sin ningún error en consola). Si en tu .glb el nodo se llama
         // distinto, cambia sólo el valor de "name" por el nombre real del objeto.
-        { name: 'porton_de', label: 'el portón' },
+        { name: 'porton_de', label: 'el portón', hinge: 'outer', pair: 'porton_iz', angle: 90 },
     ],
     doorAnimation: {
         openAngle: Math.PI * 0.55, // ~100°
@@ -247,6 +438,8 @@ let audioContext = null;
 let modelLoaded = false;
 let buildingBox = null;
 let panelOpen = false;
+let introDone = false;   // el cartel "Toma el control" solo se muestra hasta la primera vez que tomas el control
+let hudDimTimer = 0;
 let aimedInteractable = null;
 let tourElapsed = 0;
 let tourCurves = null;
@@ -321,6 +514,47 @@ keyLight.shadow.camera.right = 15;
 keyLight.shadow.camera.top = 15;
 keyLight.shadow.camera.bottom = -15;
 scene.add(keyLight);
+
+// ============================================
+// CALIDAD GRÁFICA (Media al arrancar; sólo cambia si la persona la cambia en Ajustes)
+// ============================================
+const QUALITY_LEVELS = {
+    // shadowType: PCFSoft (suave, cara) → PCF (más barata) → sin sombras dinámicas
+    high:   { pixelRatio: 2,   scale: 1,    shadows: true,  shadowType: THREE.PCFSoftShadowMap, shadow: 2048, label: 'Alta' },
+    medium: { pixelRatio: 1.5, scale: 1,    shadows: true,  shadowType: THREE.PCFShadowMap,     shadow: 1024, label: 'Media' },
+    low:    { pixelRatio: 1,   scale: 0.85, shadows: false, shadowType: THREE.PCFShadowMap,     shadow: 512,  label: 'Baja' },
+};
+const QUALITY_ORDER = ['high', 'medium', 'low'];
+const qualitySelect = document.getElementById('quality');
+let currentQuality = 'medium';
+
+function applyQuality(level) {
+    const q = QUALITY_LEVELS[level];
+    if (!q) return;
+    currentQuality = level;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio) * q.scale);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    // Sombras: tipo y encendido según el nivel (y respetando CONFIG.renderer.shadows).
+    // Cambiar el tipo o apagarlas obliga a recompilar los materiales una vez.
+    const shadowsOn = CONFIG.renderer.shadows && q.shadows;
+    if (renderer.shadowMap.type !== q.shadowType || renderer.shadowMap.enabled !== shadowsOn) {
+        renderer.shadowMap.type = q.shadowType;
+        renderer.shadowMap.enabled = shadowsOn;
+        keyLight.castShadow = shadowsOn;
+        if (!shadowsOn && keyLight.shadow.map) { keyLight.shadow.map.dispose(); keyLight.shadow.map = null; }
+        scene.traverse((o) => {
+            if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; });
+        });
+    }
+    if (keyLight.shadow.mapSize.x !== q.shadow) {
+        keyLight.shadow.mapSize.set(q.shadow, q.shadow);
+        // Three.js no recrea el mapa de sombras al cambiar mapSize: hay que liberarlo
+        if (keyLight.shadow.map) { keyLight.shadow.map.dispose(); keyLight.shadow.map = null; }
+    }
+    if (qualitySelect.value !== level) qualitySelect.value = level;
+}
+
+applyQuality(QUALITY_LEVELS[qualitySelect.value] ? qualitySelect.value : 'medium'); // el selector manda desde el primer frame
 
 const rimLight = new THREE.PointLight('#c9a84c', 20, 20, 1.5);
 rimLight.position.set(-3, 4, -5);
@@ -453,10 +687,97 @@ scene.add(hotspotGroup);
 scene.add(characterGroup);
 
 const hotspots = []; // { title, desc, position, marker, sourceNode, useLogoModel }
-const doors = [];    // { node, label, position, isOpen, angle, baseRotationY }
+const doors = [];    // { node, pivot, label, position, isOpen, angle, openSign }
+const doorDebugHelpers = []; // marcas rojas/amarillas de las bisagras (se ven con el modo depuración)
 const interactables = []; // lista combinada para el sistema de "mira e interactúa"
 
 const computers = [];
+
+// ============================================
+// MARCADORES Y ETIQUETAS EN EL MUNDO (UX)
+// ============================================
+// Los puntos ahora se colocan en el CENTRO del objeto (no flotando arriba), son anillos
+// translucidos discretos, se desvanecen con la distancia y se ocultan si hay una pared
+// en medio. El que estas mirando crece y se ilumina.
+const _markerTex = {};
+function getMarkerTexture(kind) {
+    if (_markerTex[kind]) return _markerTex[kind];
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const rgb = kind === 'green' ? '110,215,150' : '224,200,120';
+    const halo = g.createRadialGradient(64, 64, 18, 64, 64, 64);
+    halo.addColorStop(0, `rgba(${rgb},0.22)`); halo.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = halo; g.fillRect(0, 0, 128, 128);
+    g.lineWidth = 5; g.strokeStyle = `rgba(${rgb},0.95)`;
+    g.beginPath(); g.arc(64, 64, 30, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = `rgba(${rgb},0.95)`;
+    g.beginPath(); g.arc(64, 64, kind === 'green' ? 14 : 9, 0, Math.PI * 2); g.fill();
+    if (kind === 'green') { // check
+        g.strokeStyle = 'rgba(10,30,18,0.9)'; g.lineWidth = 3.5;
+        g.beginPath(); g.moveTo(57, 64); g.lineTo(62, 69); g.lineTo(71, 58); g.stroke();
+    }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    return (_markerTex[kind] = t);
+}
+function createMarkerSprite(kind, size) {
+    const mat = new THREE.SpriteMaterial({ map: getMarkerTexture(kind), transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false });
+    const s = new THREE.Sprite(mat);
+    s.scale.set(size, size, 1); s.renderOrder = 20; s.visible = false;
+    return s;
+}
+// Etiqueta tipo "pildora" con icono + texto (p. ej. ENCENDER RADIO sobre la computadora)
+function makeLabelTexture(icon, text, accent) {
+    const c = document.createElement('canvas'); c.width = 640; c.height = 160;
+    const g = c.getContext('2d');
+    const x = 8, y = 20, w = 624, h = 120, r = 60;
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+    g.fillStyle = 'rgba(10,10,14,0.86)'; g.fill();
+    g.lineWidth = 5; g.strokeStyle = accent; g.stroke();
+    g.textBaseline = 'middle'; g.textAlign = 'left';
+    g.font = '64px sans-serif'; g.fillStyle = '#fff'; g.fillText(icon, 44, 82);
+    g.font = '700 46px Montserrat, Poppins, sans-serif'; g.fillStyle = accent;
+    g.fillText(text, 134, 82);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+}
+const worldTags = [];
+function addWorldTag(tag) {
+    tag.opacity = 0; tag.occluded = false; tag.phase = worldTags.length * 1.3;
+    hotspotGroup.add(tag.sprite);
+    worldTags.push(tag);
+}
+const _tagDir = new THREE.Vector3();
+const _occRay = new THREE.Raycaster();
+let _occIdx = 0, _occFrame = 0;
+function updateWorldTags(time, dt) {
+    if (!hotspotGroup.visible || worldTags.length === 0) return;
+    const hide = panelOpen || historyOpen;
+    // oclusion (una etiqueta cada 3 cuadros: muy liviano)
+    if ((_occFrame++ % 3) === 0 && collisionMeshes.length) {
+        const t = worldTags[_occIdx++ % worldTags.length];
+        const dist = camera.position.distanceTo(t.position);
+        if (dist < t.maxDist) {
+            _tagDir.copy(t.position).sub(camera.position).normalize();
+            _occRay.set(camera.position, _tagDir); _occRay.near = 0.05; _occRay.far = dist;
+            const hit = _occRay.intersectObjects(collisionMeshes, false).find((h) => h.object.visible !== false);
+            t.occluded = !!hit && hit.distance < dist - t.radius;
+        }
+    }
+    for (const t of worldTags) {
+        const d = characterGroup.position.distanceTo(t.position);
+        const aimed = !!aimedInteractable && aimedInteractable.ref === t.ref;
+        const vis = (!hide && !t.occluded && d < t.maxDist) ? Math.min(1, (t.maxDist - d) / 2) : 0;
+        const base = t.alwaysBright ? 1 : (t.ref && t.ref.seen ? 0.35 : 0.6);
+        const want = vis * (aimed ? 1 : base);
+        t.opacity += (want - t.opacity) * Math.min(1, 8 * dt);
+        t.sprite.material.opacity = t.opacity;
+        t.sprite.visible = t.opacity > 0.02;
+        const k = (aimed ? 1.3 : 1) * (1 + Math.sin(time * 2.2 + t.phase) * 0.06);
+        t.sprite.scale.set(t.sx * k, t.sy * k, 1);
+        if (t.onTick) t.onTick(t);
+    }
+}
 let radioAudio = null;
 let radioPlaying = false;
 
@@ -738,14 +1059,77 @@ function pickWalkAndIdleClips(clips) {
 // ============================================
 // CARGA DE MODELOS GLB
 // ============================================
+// Soporte para modelos comprimidos (ver comprimir_modelos.sh):
+//  · Meshopt / Draco → geometría (y animaciones, con Meshopt) mucho más ligera
+//  · KTX2 (Basis)    → texturas que se quedan comprimidas en la GPU (menos VRAM y descarga)
+// Los modelos sin comprimir siguen cargando igual: estos decodificadores sólo se usan si el .glb los pide.
+const THREE_JSM = 'https://unpkg.com/three@0.160.0/examples/jsm/';
+const dracoLoader = new DRACOLoader().setDecoderPath(THREE_JSM + 'libs/draco/gltf/');
+const ktx2Loader = new KTX2Loader().setTranscoderPath(THREE_JSM + 'libs/basis/').detectSupport(renderer);
 const loader = new GLTFLoader();
+loader.setDRACOLoader(dracoLoader);
+loader.setKTX2Loader(ktx2Loader);
+loader.setMeshoptDecoder(MeshoptDecoder);
 const loadingBar = document.getElementById('progress-bar');
 let assetsLoaded = 0;
 const totalAssets = 3;
 
-function updateLoadingProgress(progress) {
-    loadingBar.style.width = `${Math.round(progress * 100)}%`;
+// Pantalla de carga por etapas: mensaje de lo que se está descargando + tamaño total y avance en MB.
+// El tamaño se pide con un HEAD a cada modelo (Content-Length); si el servidor no lo informa,
+// se muestra sólo el porcentaje por modelos completados.
+const loadingStageEl = document.getElementById('loading-stage');
+const loadingSizeEl = document.getElementById('loading-size');
+const LOAD_ASSETS = {
+    building:  { label: 'Cargando el edificio…',     name: 'el edificio',  url: CONFIG.model.building,  loaded: 0, total: 0, done: false, failed: false },
+    character: { label: 'Preparando al personaje…',  name: 'el personaje', url: CONFIG.model.character, loaded: 0, total: 0, done: false, failed: false },
+    logo:      { label: 'Cargando el logo…',         name: 'el logo',      url: CONFIG.model.logo,      loaded: 0, total: 0, done: false, failed: false },
+};
+const fmtMB = (b) => (b / 1048576).toLocaleString('es-BO', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' MB';
+
+function renderLoading() {
+    const list = Object.values(LOAD_ASSETS);
+    const allKnown = list.every((a) => a.total > 0);
+    const totalBytes = list.reduce((n, a) => n + a.total, 0);
+    const loadedBytes = list.reduce((n, a) => n + (a.done && !a.failed ? a.total || a.loaded : a.loaded), 0);
+    let pct;
+    if (allKnown) pct = loadedBytes / totalBytes;
+    else pct = list.reduce((n, a) => n + (a.done ? 1 : a.total > 0 ? a.loaded / a.total : 0), 0) / list.length;
+    pct = Math.max(0, Math.min(1, pct));
+    loadingBar.style.width = `${Math.round(pct * 100)}%`;
+
+    const current = list.find((a) => !a.done);
+    loadingStageEl.textContent = current ? current.label : 'Armando la escena…';
+
+    const failed = list.filter((a) => a.failed);
+    if (failed.length && !current) {
+        loadingSizeEl.textContent = `No se pudo cargar ${failed.map((a) => a.name).join(' ni ')}. Continuando sin esto…`;
+    } else if (allKnown) {
+        loadingSizeEl.textContent = loadedBytes > 0
+            ? `${fmtMB(Math.min(loadedBytes, totalBytes))} de ${fmtMB(totalBytes)} · ${Math.round(pct * 100)} %`
+            : `Descarga total: ${fmtMB(totalBytes)}`;
+    } else {
+        loadingSizeEl.textContent = totalBytes > 0 ? `Descarga: ${Math.round(pct * 100)} %` : 'Calculando tamaño de descarga…';
+    }
 }
+function loadProgress(key, xhr) {
+    const a = LOAD_ASSETS[key];
+    if (xhr.total > 0) a.total = xhr.total;
+    a.loaded = a.total > 0 ? Math.min(xhr.loaded, a.total) : xhr.loaded;
+    renderLoading();
+}
+function loadDone(key, failed) {
+    const a = LOAD_ASSETS[key];
+    a.done = true; a.failed = !!failed;
+    if (!failed && a.total > 0) a.loaded = a.total;
+    renderLoading();
+}
+renderLoading();
+Object.values(LOAD_ASSETS).forEach((a) => {
+    fetch(a.url, { method: 'HEAD' }).then((r) => {
+        const n = parseInt(r.headers.get('content-length'), 10);
+        if (r.ok && n > 0 && !a.done && !(a.total > 0)) { a.total = n; renderLoading(); }
+    }).catch(() => { /* sin tamaño: se muestra sólo el porcentaje */ });
+});
 
 // Cargar edificio principal
 loader.load(
@@ -826,6 +1210,72 @@ loader.load(
             console.warn(`⚠️ No se encontró el marcador "${CONFIG.model.spawnNodeName}" en el modelo. Se usará la posición por defecto.`);
         }
 
+        // --- Cubos de historia ("mostrar_historia", "mostrar_historia_1", ...): sólo se usa su
+        // volumen como zona disparadora. Se calcula la caja en coordenadas de mundo, se oculta
+        // el cubo por completo y se saca de las listas de colisión para que no bloquee el paso.
+        HISTORY_STORIES.forEach((story) => {
+            const H = story.cfg;
+            const key = H.nodeName.toLowerCase();
+            let historyNode = model.getObjectByName(H.nodeName);
+            if (!historyNode) {
+                // Respaldo (p. ej. "mostrar_historia001"), sin confundir con otra historia
+                // cuyo nombre empieza igual ("mostrar_historia" vs "mostrar_historia_1").
+                const otherKeys = HISTORY_STORIES.filter((o) => o !== story)
+                    .map((o) => o.cfg.nodeName.toLowerCase()).filter((k) => k.length > key.length && k.startsWith(key));
+                model.traverse((o) => {
+                    if (historyNode || !o.name) return;
+                    const n = o.name.toLowerCase();
+                    if (n.startsWith(key) && !otherKeys.some((k) => n.startsWith(k))) historyNode = o;
+                });
+            }
+            if (historyNode) {
+                historyNode.updateWorldMatrix(true, true);
+                story.zone = new THREE.Box3().setFromObject(historyNode);
+                const dropFrom = (arr, m) => { const i = arr.indexOf(m); if (i > -1) arr.splice(i, 1); };
+                historyNode.traverse((o) => {
+                    o.visible = false;
+                    if (o.isMesh) {
+                        o.castShadow = false;
+                        o.receiveShadow = false;
+                        dropFrom(collisionMeshes, o); dropFrom(floorMeshes, o); dropFrom(wallMeshes, o);
+                    }
+                });
+                console.log(`✅ Zona "${H.nodeName}" lista (cubo invisible):`, story.zone.min, story.zone.max);
+            } else {
+                console.warn(`⚠️ No se encontró el nodo "${H.nodeName}" en el GLB — esa historia no se activará.`);
+            }
+
+            // --- Puntos de cámara de esta historia (empties de Blender) ---
+            const worldOf = (name) => {
+                const n = model.getObjectByName(name);
+                if (!n) return null;
+                n.updateWorldMatrix(true, false);
+                return n.getWorldPosition(new THREE.Vector3());
+            };
+            const missing = [];
+            story.shots.length = 0;
+            if (H.fixedShot) {
+                // Un solo plano (camPrefix+N / lookPrefix+N) compartido por todos los capítulos
+                const k = H.fixedShot;
+                const pos = worldOf(H.camPrefix + k);
+                const look = pos ? worldOf(H.lookPrefix + k) : null;
+                if (!pos) missing.push(H.camPrefix + k);
+                else if (!look) missing.push(H.lookPrefix + k + ' (opcional: mirará al personaje)');
+                const shot = pos ? { pos, look } : null;
+                H.chapters.forEach(() => story.shots.push(shot));
+            } else H.chapters.forEach((_, i) => {
+                const k = i + 1;
+                const pos = worldOf(H.camPrefix + k);
+                if (!pos) { missing.push(H.camPrefix + k); story.shots.push(null); return; }
+                const look = worldOf(H.lookPrefix + k);
+                if (!look) missing.push(H.lookPrefix + k + ' (opcional: mirará al personaje)');
+                story.shots.push({ pos, look });
+            });
+            const ok = story.shots.filter(Boolean).length;
+            console.log(`✅ Historia "${H.nodeName}": ${ok}/${H.chapters.length} puntos de cámara encontrados.`);
+            if (missing.length) console.warn(`⚠️ Historia "${H.nodeName}": faltan estos empties en el GLB →`, missing.join(', '));
+        });
+
         // --- Construir hotspots interactivos a partir de nodos con nombre ---
         CONFIG.hotspots.forEach((def) => {
             const node = model.getObjectByName(def.name);
@@ -835,24 +1285,30 @@ loader.load(
             }
             const worldPos = new THREE.Vector3();
             node.getWorldPosition(worldPos);
-            // Elevamos el punto de referencia (igual que el marcador visual) para
-            // que el punto donde se "apunta e interactúa" coincida con lo que se ve.
-            const raisedPos = worldPos.clone();
-            raisedPos.y += 0.5;
+            // El marcador va en el CENTRO del objeto (caja envolvente), no flotando arriba.
+            // `markerOffset: [x, y, z]` (metros) en el hotspot permite afinarlo a mano.
+            const nb = new THREE.Box3().setFromObject(node);
+            const centerPos = nb.isEmpty() ? worldPos.clone() : nb.getCenter(new THREE.Vector3());
+            const nSize = nb.isEmpty() ? new THREE.Vector3(0.5, 0.5, 0.5) : nb.getSize(new THREE.Vector3());
+            if (def.markerOffset) centerPos.add(new THREE.Vector3(...def.markerOffset));
 
-            const marker = createGlowSprite('rgba(201,168,76,0.95)', 0.55);
-            marker.position.copy(raisedPos);
-            hotspotGroup.add(marker);
+            const marker = createMarkerSprite('gold', 0.42);
+            marker.position.copy(centerPos);
 
             const hotspotData = {
                 title: def.title,
                 desc: def.desc,
-                position: raisedPos.clone(),
+                position: centerPos.clone(),
                 marker,
                 sourceNode: node,               // referencia al objeto real del edificio (para clonarlo en el panel)
-                useLogoModel: !!def.useLogoModel, // true sólo para img_logo -> usa logo.glb en vez del nodo del edificio
+                useLogoModel: !!def.useLogoModel, // true solo para img_logo -> usa logo.glb en vez del nodo del edificio
             };
             hotspots.push(hotspotData);
+            addWorldTag({
+                sprite: marker, position: hotspotData.position, ref: hotspotData, sx: 0.42, sy: 0.42,
+                maxDist: Math.max(9, CONFIG.player.interactionDistance * 2.5),
+                radius: Math.min(1.5, Math.max(0.35, Math.max(nSize.x, nSize.y, nSize.z) * 0.5)),
+            });
             interactables.push({ type: 'info', position: hotspotData.position, ref: hotspotData });
         });
 
@@ -867,17 +1323,19 @@ loader.load(
                 console.warn(`⚠️ Puerta/portón "${def.name}" no encontrado en el GLB — revisa que el nombre coincida exactamente con el del objeto en Blender/el .glb. Se omite.`);
                 return;
             }
-            const worldPos = new THREE.Vector3();
-            node.getWorldPosition(worldPos);
-
+            const rig = setupDoorPivot(node, def);
             const doorData = {
                 node,
+                pivot: rig.pivot,
                 label: def.label,
-                position: worldPos.clone(),
+                position: rig.center.clone(),
+                centerRel: rig.centerRel, // centro de la hoja respecto a la bisagra
                 isOpen: false,
                 angle: 0,
-                baseRotationY: node.rotation.y,
-                openSign: def.flip ? -1 : 1, // permite invertir el sentido de giro puerta por puerta
+                openSign: 1,
+                dir: def.dir === undefined ? 'auto' : def.dir,
+                flip: !!def.flip,
+                maxAngle: def.angle != null ? THREE.MathUtils.degToRad(def.angle) : null,
             };
             doors.push(doorData);
             interactables.push({ type: 'door', position: doorData.position, ref: doorData });
@@ -893,9 +1351,26 @@ loader.load(
             }
             const worldPos = new THREE.Vector3();
             node.getWorldPosition(worldPos);
-            const computerData = { node, label: def.label, position: worldPos.clone() };
+            const cb = new THREE.Box3().setFromObject(node);
+            const cCenter = cb.isEmpty() ? worldPos.clone() : cb.getCenter(new THREE.Vector3());
+            const computerData = { node, label: def.label, position: cCenter.clone() };
             computers.push(computerData);
             interactables.push({ type: 'computer', position: computerData.position, ref: computerData });
+
+            // Etiqueta flotante encima de la computadora para que se sepa que ahi se escucha la radio
+            const texOff = makeLabelTexture('📻', 'ENCENDER RADIO', '#e0c878');
+            const texOn = makeLabelTexture('📻', 'RADIO EN VIVO', '#6ed796');
+            const lbl = new THREE.Sprite(new THREE.SpriteMaterial({ map: texOff, transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false }));
+            lbl.renderOrder = 21; lbl.visible = false;
+            lbl.position.set(cCenter.x, (cb.isEmpty() ? cCenter.y : cb.max.y) + 0.38, cCenter.z);
+            addWorldTag({
+                sprite: lbl, position: lbl.position, ref: computerData, sx: 1.5, sy: 0.375, alwaysBright: true,
+                maxDist: 9, radius: 0.7,
+                onTick: (t) => {
+                    const on = radioState === 'live' || radioState === 'connecting';
+                    if (t.on !== on) { t.on = on; lbl.material.map = on ? texOn : texOff; lbl.material.needsUpdate = true; }
+                },
+            });
         });
         console.log(`✅ ${computers.length} computadora(s) interactiva(s) lista(s): ${computers.map((c) => c.node.name).join(', ') || '(ninguna)'}`);
 
@@ -910,18 +1385,18 @@ loader.load(
         tourCurves = buildTourKeyframes(buildingBox, spawnPoint);
 
         assetsLoaded++;
-        updateLoadingProgress(assetsLoaded / totalAssets);
+        loadDone('building', false);
         checkAllLoaded();
     },
     (xhr) => {
         if (xhr.total > 0) {
-            updateLoadingProgress((xhr.loaded / xhr.total) * 0.7);
+            loadProgress('building', xhr);
         }
     },
     (error) => {
         console.warn('⚠️ No se pudo cargar radio_nacional.glb', error);
         assetsLoaded++;
-        updateLoadingProgress(assetsLoaded / totalAssets);
+        loadDone('building', true);
         checkAllLoaded();
     }
 );
@@ -957,18 +1432,18 @@ loader.load(
 
         logoGroup.add(model);
         assetsLoaded++;
-        updateLoadingProgress(assetsLoaded / totalAssets);
+        loadDone('logo', false);
         checkAllLoaded();
     },
     (xhr) => {
         if (xhr.total > 0) {
-            updateLoadingProgress(0.7 + (xhr.loaded / xhr.total) * 0.3);
+            loadProgress('logo', xhr);
         }
     },
     (error) => {
         console.warn('⚠️ No se pudo cargar models/logo.glb', error);
         assetsLoaded++;
-        updateLoadingProgress(assetsLoaded / totalAssets);
+        loadDone('logo', true);
         checkAllLoaded();
     }
 );
@@ -1073,18 +1548,18 @@ loader.load(
         }
 
         assetsLoaded++;
-        updateLoadingProgress(assetsLoaded / totalAssets);
+        loadDone('character', false);
         checkAllLoaded();
     },
     (xhr) => {
         if (xhr.total > 0) {
-            updateLoadingProgress(Math.min(1, (assetsLoaded + (xhr.loaded / xhr.total)) / totalAssets));
+            loadProgress('character', xhr);
         }
     },
     (error) => {
         console.warn('⚠️ No se pudo cargar models/personaje.glb', error);
         assetsLoaded++;
-        updateLoadingProgress(assetsLoaded / totalAssets);
+        loadDone('character', true);
         checkAllLoaded();
     }
 );
@@ -1144,6 +1619,12 @@ function updateProceduralWalkFallback(delta, isWalking, isRunning) {
 // ============================================
 function checkAllLoaded() {
     if (assetsLoaded >= totalAssets) {
+        if (!Object.values(LOAD_ASSETS).some((a) => a.failed)) {
+            loadingStageEl.textContent = '¡Todo listo!';
+            loadingBar.style.width = '100%';
+        }
+        dracoLoader.dispose();   // libera los workers de descompresión: ya no se necesitan
+        ktx2Loader.dispose();
         setTimeout(() => {
             document.getElementById('loading').classList.add('hidden');
             setTimeout(showWelcomeBanner, 500);
@@ -1269,12 +1750,17 @@ function endTour() {
 
 function revealManualUI() {
     document.getElementById('top-left').classList.add('visible');
-    document.getElementById('flight-data').classList.add('visible');
+    document.getElementById('flight-data').classList.toggle('visible', debugMode);
     document.getElementById('btn-help').classList.add('visible');
+    document.getElementById('btn-photo').classList.add('visible');
     document.getElementById('crosshair').classList.add('visible');
     document.getElementById('center-message').classList.add('visible');
     document.getElementById('center-message').classList.remove('hidden');
     hotspotGroup.visible = true;
+    storyMarkerGroup.visible = true;
+    discoverHud.classList.add('visible');
+    buildStoryMarkers();
+    updateDiscoveryHud(false);
     characterGroup.visible = true;
 }
 
@@ -1343,43 +1829,126 @@ function toggleDayNight() {
 btnDayNight.addEventListener('click', toggleDayNight);
 
 // ============================================
-// SONIDO AMBIENTE
+// MÚSICA DE FONDO
 // ============================================
 const btnSound = document.getElementById('btn-sound');
 
-function initAudio() {
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const MUSIC_CONFIG = {
+    src: 'otros/music.mp3', // ruta relativa a index.html
+    baseVolume: 0.4,        // volumen máximo real cuando el slider está al 100%
+    duckFactor: 0,          // al encender la radio, la música de fondo se apaga por completo (0 = silencio)
+    fadeSpeed: 0.6,         // velocidad del fade (1 = un segundo para ir de 0 a 100%)
+};
+
+const bgMusic = new Audio(MUSIC_CONFIG.src);
+bgMusic.loop = true;
+bgMusic.preload = 'auto';
+bgMusic.volume = 0;
+
+let musicWanted = true;   // false si el usuario la silenció con el botón 🔊/🔇
+let musicDucked = false;  // true mientras suena la radio en vivo
+let musicFade = 0;        // 0..1, para entrada/salida suave
+let musicFadeTarget = 1;
+
+function getUserVolume() {
+    const slider = document.getElementById('volume');
+    return slider ? parseFloat(slider.value) : 0.5;
+}
+
+// La música baja sola (con transición suave) cuando suena la radio en vivo o se cuenta una historia.
+// `musicDuckReasons` permite que varias cosas pidan bajarla a la vez sin pisarse entre sí.
+const musicDuckReasons = new Map(); // motivo -> factor (0..1)
+let musicDuckLevel = 1;             // factor aplicado ahora mismo (se acerca suavemente al objetivo)
+function setMusicDuck(reason, factor) {
+    if (factor == null || factor >= 1) musicDuckReasons.delete(reason);
+    else musicDuckReasons.set(reason, factor);
+}
+function musicDuckTarget() {
+    let t = musicDucked ? MUSIC_CONFIG.duckFactor : 1;
+    musicDuckReasons.forEach((f) => { t = Math.min(t, f); });
+    return t;
+}
+
+function applyMusicVolume() {
+    const v = getUserVolume() * MUSIC_CONFIG.baseVolume * musicDuckLevel * musicFade;
+    bgMusic.volume = Math.min(1, Math.max(0, v));
+}
+
+// Fade suave (se ejecuta siempre, es muy liviano)
+let _lastMusicTick = performance.now();
+setInterval(() => {
+    const now = performance.now();
+    const dt = (now - _lastMusicTick) / 1000;
+    _lastMusicTick = now;
+    let changed = false;
+    if (musicFade !== musicFadeTarget) {
+        const step = MUSIC_CONFIG.fadeSpeed * dt;
+        musicFade = musicFade < musicFadeTarget
+            ? Math.min(musicFadeTarget, musicFade + step)
+            : Math.max(musicFadeTarget, musicFade - step);
+        changed = true;
     }
-    if (audioContext.state === 'suspended') {
-        audioContext.resume();
+    // Ducking suave: baja en ~0.8 s y vuelve a subir más despacio (~1.6 s)
+    const duckTarget = musicDuckTarget();
+    if (Math.abs(musicDuckLevel - duckTarget) > 0.001) {
+        const k = duckTarget < musicDuckLevel ? 3.5 : 1.8;
+        musicDuckLevel += (duckTarget - musicDuckLevel) * Math.min(1, k * dt);
+        changed = true;
     }
-    if (!soundEnabled) {
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
-        const volumeSlider = document.getElementById('volume');
-        const volumeValue = volumeSlider ? parseFloat(volumeSlider.value) : 0.5;
-        gainNode.gain.setValueAtTime(0.02 * volumeValue, audioContext.currentTime);
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        oscillator.start();
+    if (changed) {
+        applyMusicVolume();
+        if (musicFade === 0 && musicFadeTarget === 0) bgMusic.pause();
+    }
+}, 50);
+
+function startMusic() {
+    if (!musicWanted) return Promise.resolve();
+    musicFadeTarget = 1;
+    return bgMusic.play().then(() => {
         soundEnabled = true;
         btnSound.textContent = '🔊';
-        oscillator.onended = () => { soundEnabled = false; btnSound.textContent = '🔇'; };
-        window.__ambientOsc = oscillator;
-        window.__ambientGain = gainNode;
+    });
+}
+
+function toggleMusic() {
+    if (musicWanted) {
+        musicWanted = false;
+        musicFadeTarget = 0; // baja suave y luego hace pause
+        soundEnabled = false;
+        btnSound.textContent = '🔇';
     } else {
-        if (window.__ambientOsc) {
-            window.__ambientOsc.stop();
-            soundEnabled = false;
-            btnSound.textContent = '🔇';
-        }
+        musicWanted = true;
+        startMusic().catch((err) => console.warn('No se pudo reproducir la música:', err));
     }
 }
 
-btnSound.addEventListener('click', initAudio);
+btnSound.addEventListener('click', toggleMusic);
+
+// Los navegadores bloquean el audio hasta que el usuario hace algo (click,
+// tecla o toque). Intentamos arrancar de inmediato; si el navegador lo
+// bloquea, arranca solo con la primera interacción.
+function setupMusicAutoplay() {
+    const unlockEvents = ['pointerdown', 'keydown', 'touchstart'];
+    const unlock = () => {
+        startMusic().then(() => {
+            unlockEvents.forEach((ev) => window.removeEventListener(ev, unlock, true));
+        }).catch(() => { /* seguimos esperando otra interacción */ });
+    };
+    startMusic().catch(() => {
+        unlockEvents.forEach((ev) => window.addEventListener(ev, unlock, true));
+    });
+}
+setupMusicAutoplay();
+
+// Pausar al cambiar de pestaña y retomar al volver
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (historyOpen && !historyPaused) toggleHistoryPlay();
+        bgMusic.pause();
+    } else if (musicWanted && musicFadeTarget === 1 && musicFade > 0) {
+        bgMusic.play().catch(() => {});
+    }
+});
 
 // ============================================
 // CONTROL DEL JUGADOR (VUELO LIBRE / MANUAL)
@@ -1391,35 +1960,55 @@ const player = {
     pitch: 0,
 };
 
+// Modo depuración: oculto por defecto. Se activa con la tecla ` (Backquote) o abriendo la
+// página con ?debug. Muestra los "datos de vuelo" y habilita el vuelo libre (Espacio/R sube,
+// Ctrl/C baja) para revisar el modelo; fuera de él el personaje sólo camina y respeta la gravedad.
+let debugMode = new URLSearchParams(location.search).has('debug');
+function setDebugMode(on) {
+    debugMode = on;
+    document.getElementById('flight-data').classList.toggle('visible', on && mode === 'fly');
+    doorDebugHelpers.forEach((h) => { h.visible = on; }); // bisagras de puertas/portones: rojo = eje, amarillo = hoja
+    showToast(on ? 'Modo depuración: ACTIVADO · bisagras visibles (rojo) · vuelo libre: Espacio/R sube · Ctrl/C baja' : 'Modo depuración: desactivado');
+}
 const keys = {};
 const mouse = { x: 0, y: 0 };
 
 document.addEventListener('keydown', (e) => {
+    if (historyOpen) { handleHistoryKey(e); return; } // la historia narrada captura el teclado (no se camina)
+    if (photoModalOpen) { if (e.code === 'Escape' || e.code === 'Enter') closePhotoModal(); return; }
+    if (radioPanelOpen) { if (e.code === 'Escape' || (e.code === 'KeyF' && !e.repeat)) closeRadioPanel(); return; }
     keys[e.code] = true;
     if (e.code === 'Space') e.preventDefault();
     if (e.code === 'KeyN') toggleDayNight();
+    if (e.code === 'Backquote' && !e.repeat) setDebugMode(!debugMode);
     if (e.code === 'KeyZ') resetPosition();
 
     if (mode === 'fly' && cameraMode === 'manual') {
-        if (e.code === 'KeyE') {
-            if (panelOpen) {
-                closeHotspotPanel();
-            } else if (aimedInteractable) {
-                if (aimedInteractable.type === 'door') {
-                    toggleDoor(aimedInteractable.ref);
-                } else if (aimedInteractable.type === 'computer') {
-                    toggleRadioStream();
-                } else if (aimedInteractable.type === 'info') {
-                    openHotspotPanel(aimedInteractable.ref);
-                }
-            } else {
-                player.yaw += 0.05;
-            }
-        }
+        if (e.code === 'KeyP' && !e.repeat && !panelOpen) togglePhotoMode();
+        if (e.code === 'Enter' && !e.repeat && photoMode && !panelOpen) capturePhoto();
+        if (e.code === 'KeyH' && !e.repeat && !panelOpen && !photoMode) openHistory(HISTORY_STORIES.find((st) => st.inside)); // la de la zona actual, o la principal // ver la historia desde cualquier lugar
+        if (e.code === 'KeyF' && !e.repeat && !photoMode) interact(false);   // F = interactuar (E y Q quedan sólo para rotar)
+        if (e.code === 'KeyE' && !panelOpen) player.yaw += 0.05;
         if (e.code === 'KeyQ' && !panelOpen) player.yaw -= 0.05;
     }
 });
 document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+// Interactuar con lo que se apunta (puertas, computadora, puntos dorados) o, con F, revivir
+// la historia de la zona. Se dispara con la tecla F o con clic izquierdo (mira bloqueada).
+function interact(fromClick) {
+    if (panelOpen) { if (!fromClick) closeHotspotPanel(); return; }
+    if (aimedInteractable) {
+        if (aimedInteractable.type === 'door') toggleDoor(aimedInteractable.ref);
+        else if (aimedInteractable.type === 'computer') openRadioPanel();
+        else if (aimedInteractable.type === 'info') openHotspotPanel(aimedInteractable.ref);
+    } else if (!fromClick && !historyOpen && HISTORY_STORIES.some((st) => st.inside)) {
+        openHistory(HISTORY_STORIES.find((st) => st.inside)); // revivir la historia de esta zona
+    }
+}
+window.addEventListener('mousedown', (e) => {
+    if (e.button === 0 && locked && mode === 'fly' && cameraMode === 'manual' && !historyOpen && !photoMode) interact(true);
+});
 window.addEventListener('mousemove', (e) => {
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -1675,8 +2264,10 @@ function updatePlayer(delta) {
     player.velocity.z += (targetVelZ - player.velocity.z) * Math.min(1, accel * delta);
 
     let verticalInput = 0;
-    if (keys['Space'] || keys['KeyR']) verticalInput += 1;
-    if (keys['ControlLeft'] || keys['ControlRight'] || keys['KeyF']) verticalInput -= 1;
+    if (debugMode) { // vuelo libre sólo en depuración
+        if (keys['Space'] || keys['KeyR']) verticalInput += 1;
+        if (keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC']) verticalInput -= 1;
+    }
 
     if (verticalInput !== 0) {
         // Vuelo manual (subir/bajar con Espacio/R o Ctrl/F)
@@ -1743,15 +2334,133 @@ function updatePlayer(delta) {
     // bamboleo procedural mientras se camina (ver función más arriba).
     updateProceduralWalkFallback(delta, isWalking, isRunning);
 
-    const speedMag = Math.sqrt(player.velocity.x**2 + player.velocity.y**2 + player.velocity.z**2);
-    document.getElementById('speed-value').textContent = speedMag.toFixed(1);
-    document.getElementById('alt-value').textContent = player.position.y.toFixed(1);
+    if (debugMode) {
+        const speedMag = Math.sqrt(player.velocity.x**2 + player.velocity.y**2 + player.velocity.z**2);
+        document.getElementById('speed-value').textContent = speedMag.toFixed(1);
+        document.getElementById('alt-value').textContent = player.position.y.toFixed(1);
+    }
 }
 
 // ============================================
 // PUERTAS Y PORTONES INTERACTIVOS (abrir/cerrar con E)
 // ============================================
+// Crea una bisagra (pivote) en un borde de la hoja y cuelga la puerta de ella: asi gira como una
+// puerta real en vez de girar sobre su centro/origen (que era lo que hacia que se abriera mal).
+// Caja envolvente de la HOJA sola: ignora carteles/cuadros/logos que cuelgan de ella (p. ej. el poster de Canal 2
+// que sobresale del portón) porque agrandaban la caja y movian la bisagra lejos del borde real.
+const DOOR_IGNORE_RE = /poster|cuadro|img_|banner|logo|cartel|afiche|flag|bandera/i;
+function leafBox(node) {
+    const ignored = new Set(CONFIG.hotspots.map((h) => h.name));
+    const box = new THREE.Box3();
+    const tmp = new THREE.Box3();
+    node.updateWorldMatrix(true, true);
+    node.traverse((m) => {
+        if (!m.isMesh) return;
+        for (let o = m; o && o !== node; o = o.parent) {
+            if (DOOR_IGNORE_RE.test(o.name) || ignored.has(o.name)) return;
+        }
+        tmp.setFromObject(m);
+        if (!tmp.isEmpty()) box.union(tmp);
+    });
+    return box.isEmpty() ? new THREE.Box3().setFromObject(node) : box;
+}
+
+function setupDoorPivot(node, def) {
+    const parent = node.parent;
+    parent.updateWorldMatrix(true, false);
+    node.updateWorldMatrix(true, true);
+    const box = leafBox(node);
+    const size = box.getSize(new THREE.Vector3());
+    const centerW = box.getCenter(new THREE.Vector3());
+    const origin = node.getWorldPosition(new THREE.Vector3());
+    const axis = size.x >= size.z ? 'x' : 'z'; // eje a lo ancho de la hoja
+    const lo = box.min[axis], hi = box.max[axis];
+    let side = def.hinge || 'auto';
+    if (side === 'outer' && def.pair) {
+        // bisagra en el extremo MAS LEJANO de la otra hoja (poste exterior), sin importar la orientacion del modelo
+        let root = node; while (root.parent) root = root.parent;
+        const other = root.getObjectByName(def.pair);
+        if (other) {
+            const oc = new THREE.Box3().setFromObject(other).getCenter(new THREE.Vector3());
+            side = oc[axis] > centerW[axis] ? 'min' : 'max';
+        } else side = 'auto';
+    }
+    if (side === 'auto') {
+        // si el origen del objeto ya esta en un extremo, ahi esta la bisagra
+        const t = (origin[axis] - lo) / Math.max(1e-6, hi - lo);
+        side = t > 0.75 ? 'max' : 'min';
+    }
+    const hingeW = centerW.clone();
+    // 1) Si existe un empty en el .glb llamado "pivot_<nombre>" (p. ej. pivot_porton_iz), ESA es la bisagra.
+    let sceneRoot = node; while (sceneRoot.parent) sceneRoot = sceneRoot.parent;
+    const pivotEmpty = sceneRoot.getObjectByName(def.pivot || ('pivot_' + node.name));
+    if (pivotEmpty) {
+        pivotEmpty.updateWorldMatrix(true, false);
+        const pw = pivotEmpty.getWorldPosition(new THREE.Vector3());
+        hingeW.x = pw.x; hingeW.z = pw.z; // solo importa la posicion horizontal
+        side = 'empty ' + pivotEmpty.name;
+    } else {
+        // 2) Si no, se calcula sola a partir de la hoja
+        const inset = def.hingeInset || 0; // ajuste fino: mueve la bisagra hacia el centro de la hoja (unidades del mundo)
+        hingeW[axis] = side === 'min' ? lo + inset : hi - inset;
+    }
+    const pivot = new THREE.Group();
+    pivot.name = node.name + '_bisagra';
+    parent.add(pivot);
+    pivot.position.copy(parent.worldToLocal(hingeW.clone()));
+    pivot.updateWorldMatrix(true, false);
+    pivot.attach(node); // conserva la posicion/rotacion actual de la puerta
+
+    // Ayuda visual (modo depuracion: tecla ` o ?debug): ROJO = eje de la bisagra, AMARILLO = hacia donde se extiende la hoja
+    const ws = parent.getWorldScale(new THREE.Vector3()).x || 1;
+    const dbgMat = new THREE.MeshBasicMaterial({ color: 0xff2222, depthTest: false, transparent: true, opacity: 0.95 });
+    const dbg = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3, 8), dbgMat);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), dbgMat);
+    post.renderOrder = ball.renderOrder = 999;
+    dbg.add(post, ball);
+    // etiqueta con el nombre de la hoja y de dónde sale su bisagra (empty o cálculo automático)
+    {
+        const lc = document.createElement('canvas'); lc.width = 512; lc.height = 128;
+        const lg = lc.getContext('2d');
+        lg.fillStyle = 'rgba(0,0,0,0.8)'; lg.fillRect(0, 0, 512, 128);
+        lg.fillStyle = '#ffdd00'; lg.font = '700 44px sans-serif'; lg.textBaseline = 'middle'; lg.textAlign = 'center';
+        lg.fillText(node.name, 256, 44);
+        lg.fillStyle = side.startsWith('empty') ? '#6ed796' : '#ff9a9a'; lg.font = '600 34px sans-serif';
+        lg.fillText(side.startsWith('empty') ? 'pivote: EMPTY ✓' : 'pivote: AUTOMÁTICO', 256, 92);
+        const lbl = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(lc), depthTest: false, transparent: true }));
+        lbl.scale.set(1.8, 0.45, 1); lbl.position.y = 1.9; lbl.renderOrder = 1000;
+        dbg.add(lbl);
+    }
+    dbg.scale.setScalar(1 / ws);
+    const cRel = parent.worldToLocal(centerW.clone()).sub(pivot.position);
+    const leafLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(cRel.x * 2, 0, cRel.z * 2)]),
+        new THREE.LineBasicMaterial({ color: 0xffdd00, depthTest: false })
+    );
+    leafLine.renderOrder = 999;
+    pivot.add(dbg, leafLine);
+    dbg.visible = leafLine.visible = !!debugMode;
+    doorDebugHelpers.push(dbg, leafLine);
+    const centerRel = parent.worldToLocal(centerW.clone()).sub(pivot.position);
+    console.log(`🚪 ${node.name}: hoja de ${(hi - lo).toFixed(2)} de ancho (sin carteles) · bisagra en '${side}'${side.startsWith('empty') ? '' : ` del eje ${axis.toUpperCase()} (si se abre del lado equivocado usa hinge:'${side === 'min' ? 'max' : 'min'}' o flip:true en CONFIG.doors; o crea un empty pivot_${node.name} en Blender)`}`);
+    return { pivot, center: centerW, centerRel };
+}
+
+// Sentido de apertura: la hoja se aleja de la persona que la abre (como al empujarla)
+function autoDoorSign(door) {
+    const p = door.pivot.parent.worldToLocal(characterGroup.position.clone()).sub(door.pivot.position);
+    const c = door.centerRel;
+    const side = p.x * -c.z + p.z * c.x;
+    return side >= 0 ? 1 : -1;
+}
+
 function toggleDoor(door) {
+    if (!door.isOpen) {
+        let sign = door.dir === 'auto' ? autoDoorSign(door) : (door.dir < 0 ? -1 : 1);
+        if (door.flip) sign = -sign;
+        door.openSign = sign;
+    }
     door.isOpen = !door.isOpen;
     showToast(door.isOpen ? `Abriendo ${door.label}...` : `Cerrando ${door.label}...`);
 }
@@ -1759,23 +2468,147 @@ function toggleDoor(door) {
 // ============================================
 // COMPUTADORA INTERACTIVA: PRENDE/APAGA LA RADIO EN VIVO
 // ============================================
-function toggleRadioStream() {
-    if (!radioAudio) {
-        radioAudio = new Audio(CONFIG.computer.streamUrl);
-        radioAudio.crossOrigin = 'anonymous';
-        radioAudio.preload = 'none';
+// Estados: idle | connecting | live | paused | error
+const radioPanelEl = document.getElementById('radio-panel');
+const radioStatusEl = document.getElementById('radio-status');
+const radioToggleBtn = document.getElementById('radio-toggle-btn');
+const radioBadgeTextEl = radioPanelEl.querySelector('.radio-badge-live');
+const radioWavesCanvas = document.getElementById('radio-waves-canvas');
+const radioBarsEl = document.getElementById('radio-bars');
+const radioBars = [];
+for (let i = 0; i < 28; i++) { const b = document.createElement('div'); b.className = 'radio-bar'; radioBarsEl.appendChild(b); radioBars.push(b); }
+let radioPanelOpen = false;
+let radioState = 'idle';
+let radioAttempt = 0;
+let radioConnectTimer = 0;
+let radioStallTimer = 0;
+
+function setRadioState(state, detail) {
+    radioState = state;
+    radioPanelEl.classList.toggle('error', state === 'error');
+    radioPanelEl.classList.toggle('connecting', state === 'connecting');
+    radioPanelEl.classList.toggle('paused', state === 'paused' || state === 'idle');
+    radioPlaying = state === 'connecting' || state === 'live';
+    const wasDucked = musicDucked;
+    musicDucked = state === 'connecting' || state === 'live'; // la musica de fondo se apaga mientras se escucha la radio
+    if (musicDucked && !wasDucked && musicWanted) showToast('🎵 Música de fondo en pausa mientras escuchas la radio');
+    applyMusicVolume();
+
+    const badge = { connecting: 'CONECTANDO', live: 'EN VIVO', paused: 'EN PAUSA', idle: 'EN PAUSA', error: 'SIN SEÑAL' }[state];
+    radioBadgeTextEl.lastChild.nodeValue = badge;
+    radioToggleBtn.textContent = { connecting: '✕ Cancelar', live: '⏸ Pausar', paused: '▶ Reanudar', idle: '▶ Escuchar', error: '🔄 Reintentar' }[state];
+    radioStatusEl.textContent = detail || {
+        connecting: radioAttempt > 1 ? `Sintonizando… (intento ${radioAttempt})` : 'Sintonizando…',
+        live: 'En el aire · FM 94.5',
+        paused: 'Radio en pausa',
+        idle: 'Radio apagada',
+    }[state];
+}
+
+function stopRadioAudio() {
+    clearTimeout(radioConnectTimer); clearTimeout(radioStallTimer);
+    if (!radioAudio) return;
+    const a = radioAudio;
+    radioAudio = null;
+    a.onplaying = a.onerror = a.onwaiting = a.onended = null;
+    a.pause();
+    a.removeAttribute('src');
+    a.load(); // corta la descarga del stream
+}
+
+function failRadio(msg) {
+    if (radioState === 'error') return;
+    stopRadioAudio();
+    if (radioAttempt >= 2) msg += ' También puedes escucharla en el sitio web.';
+    setRadioState('error', msg);
+    if (!radioPanelOpen) showToast('La radio perdió la señal · vuelve a la computadora para reintentar');
+}
+
+function startRadioStream() {
+    stopRadioAudio();
+    radioAttempt++;
+    if (navigator.onLine === false) { failRadio('Sin conexión a internet. Conéctate e inténtalo de nuevo.'); return; }
+    setRadioState('connecting');
+    const a = new Audio();
+    a.preload = 'none';
+    // Sin crossOrigin: el ecualizador es sintético, y pedir CORS haría fallar streams que no lo envían.
+    const url = CONFIG.computer.streamUrl;
+    a.src = radioAttempt > 1 ? url + (url.includes('?') ? '&' : '?') + 'r=' + Date.now() : url;
+    radioAudio = a;
+    a.onplaying = () => {
+        if (radioAudio !== a) return;
+        clearTimeout(radioConnectTimer); clearTimeout(radioStallTimer);
+        setRadioState('live');
+    };
+    a.onwaiting = () => {
+        if (radioAudio !== a || radioState !== 'live') return;
+        radioStatusEl.textContent = 'Reconectando…';
+        clearTimeout(radioStallTimer);
+        radioStallTimer = setTimeout(() => { if (radioAudio === a) failRadio('Se perdió la señal de la radio.'); }, CONFIG.computer.stallTimeout);
+    };
+    a.onerror = () => { if (radioAudio === a) failRadio('No se pudo conectar con la radio en vivo. Revisa tu conexión e inténtalo de nuevo.'); };
+    a.onended = () => { if (radioAudio === a) failRadio('La transmisión se interrumpió.'); };
+    radioConnectTimer = setTimeout(() => {
+        if (radioAudio === a && radioState === 'connecting') failRadio('La radio tardó demasiado en responder. Inténtalo de nuevo.');
+    }, CONFIG.computer.connectTimeout);
+    a.play().catch((err) => {
+        if (radioAudio !== a || (err && err.name === 'AbortError')) return;
+        if (err && err.name === 'NotAllowedError') failRadio('El navegador bloqueó el audio. Presiona Reintentar.');
+        else failRadio('No se pudo reproducir la transmisión. Inténtalo de nuevo.');
+    });
+}
+
+radioToggleBtn.addEventListener('click', () => {
+    if (radioState === 'live' || radioState === 'connecting') { stopRadioAudio(); setRadioState('paused'); }
+    else startRadioStream(); // pausada, apagada o con error → conectar de nuevo (stream fresco, no buffer viejo)
+});
+window.addEventListener('offline', () => {
+    if (radioState === 'live' || radioState === 'connecting') failRadio('Se perdió la conexión a internet.');
+});
+window.addEventListener('online', () => {
+    if (radioState === 'error') radioStatusEl.textContent = 'Conexión recuperada. Presiona Reintentar.';
+});
+
+function openRadioPanel() {
+    panelOpen = true;
+    radioPanelOpen = true;
+    document.getElementById('interact-hint').classList.remove('visible');
+    radioPanelEl.classList.add('visible');
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    if (radioState === 'idle' || radioState === 'error') startRadioStream();
+}
+function closeRadioPanel() {
+    if (!radioPanelOpen) return;
+    panelOpen = false;
+    radioPanelOpen = false;
+    radioPanelEl.classList.remove('visible');
+    player.velocity.set(0, 0, 0);
+    clock.getDelta();
+    if (mode === 'fly' && cameraMode === 'manual') canvas.requestPointerLock();
+    showResumeHintSoon();
+    if (radioState === 'live') showToast('La radio sigue sonando · vuelve a la computadora para pausarla');
+}
+document.getElementById('radio-close').addEventListener('click', closeRadioPanel);
+
+// Ecualizador y ondas (sintéticos: siempre se ven vivos aunque el servidor no permita analizar el audio)
+function updateRadioVisuals(time) {
+    const live = radioState === 'live', connecting = radioState === 'connecting';
+    for (let i = 0; i < radioBars.length; i++) {
+        const v = live ? 0.12 + 0.88 * Math.abs(Math.sin(time * (2.2 + i * 0.17) + i * 1.7) * Math.cos(time * 1.3 + i * 0.6))
+            : connecting ? 0.08 + 0.1 * Math.abs(Math.sin(time * 4 + i * 0.5)) : 0.06;
+        radioBars[i].style.transform = `scaleY(${v.toFixed(3)})`;
     }
-    if (radioPlaying) {
-        radioAudio.pause();
-        radioPlaying = false;
-        showToast('Radio apagada');
-    } else {
-        radioAudio.play().catch((err) => {
-            console.warn('No se pudo reproducir el stream:', err);
-            showToast('No se pudo conectar con la radio en vivo');
-        });
-        radioPlaying = true;
-        showToast('Sintonizando Radio Nacional de Huanuni FM 94.5...');
+    const cv = radioWavesCanvas;
+    if (cv.width !== cv.clientWidth || cv.height !== cv.clientHeight) { cv.width = cv.clientWidth; cv.height = cv.clientHeight; }
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (!live && !connecting) return;
+    const maxR = Math.hypot(cv.width, cv.height) * 0.45;
+    for (let k = 0; k < 5; k++) {
+        const pr = ((time * (live ? 0.22 : 0.12)) + k / 5) % 1;
+        ctx.strokeStyle = `rgba(201,168,76,${((1 - pr) * (live ? 0.32 : 0.14)).toFixed(3)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cv.width / 2, cv.height / 2, 60 + pr * maxR, 0, Math.PI * 2); ctx.stroke();
     }
 }
 
@@ -1783,9 +2616,9 @@ function updateDoors(delta) {
     if (doors.length === 0) return;
     const { openAngle, speed } = CONFIG.doorAnimation;
     doors.forEach((door) => {
-        const target = door.isOpen ? openAngle * door.openSign : 0;
+        const target = door.isOpen ? (door.maxAngle != null ? door.maxAngle : openAngle) * door.openSign : 0;
         door.angle += (target - door.angle) * Math.min(1, speed * delta);
-        door.node.rotation.y = door.baseRotationY + door.angle;
+        door.pivot.rotation.y = door.angle;
     });
 }
 
@@ -1840,23 +2673,32 @@ function updateInteractionAim() {
 
     aimedInteractable = best;
     const hint = document.getElementById('interact-hint');
+    const crosshairEl = document.getElementById('crosshair');
     if (aimedInteractable && !panelOpen) {
-        if (aimedInteractable.type === 'door') {
-            const d = aimedInteractable.ref;
-            hint.textContent = `Presiona [E] para ${d.isOpen ? 'cerrar' : 'abrir'} ${d.label}`;
-        } else if (aimedInteractable.type === 'computer') {
-            hint.textContent = `Presiona [E] para ${radioPlaying ? 'apagar' : 'encender'} ${aimedInteractable.ref.label}`;
-        } else {
-            hint.textContent = `Presiona [E] para ver: ${aimedInteractable.ref.title}`;
+        const r = aimedInteractable.ref;
+        let icon, text;
+        if (aimedInteractable.type === 'door') { icon = '🚪'; text = `${r.isOpen ? 'Cerrar' : 'Abrir'} ${r.label}`; }
+        else if (aimedInteractable.type === 'computer') {
+            icon = '📻';
+            text = (radioState === 'live' || radioState === 'connecting') ? 'Abrir la radio (está sonando)' : 'Encender la radio';
+        } else { icon = '🔍'; text = r.title.trim(); }
+        const key = icon + text;
+        if (hint.dataset.key !== key) {
+            hint.dataset.key = key;
+            const mk = (cls, txt) => { const s = document.createElement('span'); s.className = cls; s.textContent = txt; return s; };
+            hint.replaceChildren(mk('ih-icon', icon), mk('ih-text', text), mk('ih-key', 'F'), mk('ih-or', 'o clic'));
         }
         hint.classList.add('visible');
+        crosshairEl.classList.add('aiming');
     } else {
         hint.classList.remove('visible');
+        crosshairEl.classList.remove('aiming');
     }
 }
 
 function openHotspotPanel(hotspot) {
     panelOpen = true;
+    markHotspotSeen(hotspot);
     document.getElementById('interact-hint').classList.remove('visible');
     document.getElementById('hotspot-title').textContent = hotspot.title;
     document.getElementById('hotspot-desc').textContent = hotspot.desc;
@@ -1889,6 +2731,7 @@ function closeHotspotPanel() {
     player.velocity.set(0, 0, 0); // 🔧
     clock.getDelta();             // 🔧 descarta el tiempo transcurrido con el panel abierto
     if (mode === 'fly' && cameraMode === 'manual') canvas.requestPointerLock();
+    showResumeHintSoon();
 }
 
 document.getElementById('hotspot-close').addEventListener('click', closeHotspotPanel);
@@ -1914,7 +2757,7 @@ document.getElementById('btn-fullscreen').addEventListener('click', () => {
 // AYUDA
 // ============================================
 document.getElementById('btn-help').addEventListener('click', () => {
-    showToast('WASD: mover | Espacio/R: subir | Ctrl/F: bajar | Q/E: rotar (o interactuar) | Shift: correr | Rueda: zoom cámara | N: día/noche | Z: reiniciar');
+    showToast('WASD: mover | Q/E: rotar | F o clic: interactuar | Shift: correr | Rueda: zoom cámara | N: día/noche | Z: reiniciar');
 });
 
 function showToast(msg) {
@@ -1934,19 +2777,8 @@ btnSettings.addEventListener('click', () => {
     settingsPanel.classList.toggle('open');
 });
 
-document.getElementById('quality').addEventListener('change', (e) => {
-    const quality = e.target.value;
-    if (quality === 'high') {
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        keyLight.shadow.mapSize.set(2048, 2048);
-    } else if (quality === 'medium') {
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-        keyLight.shadow.mapSize.set(1024, 1024);
-    } else {
-        renderer.setPixelRatio(1);
-        keyLight.shadow.mapSize.set(512, 512);
-    }
-    renderer.setSize(window.innerWidth, window.innerHeight);
+qualitySelect.addEventListener('change', (e) => {
+    applyQuality(e.target.value);
 });
 
 document.getElementById('exposure').addEventListener('input', (e) => {
@@ -1961,10 +2793,9 @@ document.getElementById('stars').addEventListener('change', (e) => {
     stars.visible = e.target.checked && currentTimeOfDay === 'night';
 });
 
-document.getElementById('volume').addEventListener('input', (e) => {
-    if (window.__ambientGain && audioContext) {
-        window.__ambientGain.gain.setValueAtTime(0.02 * parseFloat(e.target.value), audioContext.currentTime);
-    }
+document.getElementById('volume').addEventListener('input', () => {
+    applyMusicVolume();
+    if (narrClip) narrClip.volume = narrVolume();
 });
 
 // ============================================
@@ -1983,14 +2814,969 @@ canvas.addEventListener('click', () => {
     if (!locked && mode === 'fly' && cameraMode === 'manual' && !panelOpen) canvas.requestPointerLock();
 });
 
+function showResumeHintSoon() {
+    // tras cerrar un panel: si el mouse no se recaptura, avisa con un texto pequeno (no tapa la pantalla)
+    setTimeout(() => {
+        if (!locked && introDone && !panelOpen && !historyOpen && !photoMode && mode === 'fly' && cameraMode === 'manual') {
+            document.getElementById('resume-hint').classList.add('visible');
+        }
+    }, 450);
+}
 document.addEventListener('pointerlockchange', () => {
     locked = document.pointerLockElement === canvas;
+    const cm = document.getElementById('center-message');
+    const rh = document.getElementById('resume-hint');
+    const hud = document.getElementById('top-left');
+    clearTimeout(hudDimTimer);
     if (mode === 'fly' && cameraMode === 'manual') {
         if (locked) {
-            document.getElementById('center-message').classList.add('hidden');
-        } else if (!panelOpen) {
-            document.getElementById('center-message').classList.remove('hidden');
+            introDone = true;
+            cm.classList.add('hidden');
+            rh.classList.remove('visible');
+            hudDimTimer = setTimeout(() => hud.classList.add('dim'), 12000); // la guia de teclas se atenua sola
+        } else {
+            hud.classList.remove('dim');
+            if (!introDone) cm.classList.remove('hidden');   // solo la primera vez
+            else if (!panelOpen && !historyOpen && !photoMode) rh.classList.add('visible'); // despues: texto simple
         }
+    }
+});
+
+// ============================================
+// HISTORIA NARRADA (cubo invisible "mostrar_historia")
+// ============================================
+// Al cruzar el portón el personaje queda quieto (movimiento bloqueado) y empieza
+// la historia en una capa de cine: barras, tarjeta de capítulo y la fuente al pie.
+// Cada capítulo tiene su plano: la cámara se coloca en el empty "hist_cam_N" y mira
+// a "hist_look_N" haciendo un paneo lento de izquierda a derecha mientras avanza el
+// capítulo. Entre capítulos hay una transición tipo "cambio de sintonía" (fundido a
+// azul con un pequeño ruido de radio), no un vuelo de cámara.
+// Cada historia (portón, etc.) guarda su propia zona, planos de cámara, tiempos y si ya se vio.
+const HISTORY_STORIES = [CONFIG.history, CONFIG.historyTheater].map((cfg) => ({
+    cfg,
+    zone: null,      // THREE.Box3 del cubo (en coordenadas de mundo)
+    shots: [],       // { pos, look } por capítulo
+    dwell: [],       // segundos por capítulo (según la longitud del texto)
+    inside: false,
+    seen: false,
+}));
+let hxStory = HISTORY_STORIES[0];   // historia activa (la que se está mostrando)
+let historyOpen = false;
+let historyPaused = false;
+let historyIndex = 0;
+let historyElapsed = 0;
+let historyTuning = 0;       // segundos restantes de la "sintonía" inicial
+let historyTuningTotal = 1.8;
+let historyRAF = 0;
+let historyLast = 0;
+let historyAudio = null;
+let historyCountRAF = 0;
+let historyHintEl = null;
+let hxFading = false;        // true mientras dura una transición (el reloj del capítulo se detiene)
+let hxTransTimer = 0;
+let hxClock = 0;
+let hxPanP = 0;              // progreso suavizado del paneo continuo (0 → 1)
+let hxCurrentShot = null;
+const hxCamPos = new THREE.Vector3();
+const hxLook = new THREE.Vector3();
+const _hxDir = new THREE.Vector3();
+const _hxRight = new THREE.Vector3();
+const _hxTarget = new THREE.Vector3();
+
+// Tiempo de lectura de cada capítulo: ~2.6 palabras por segundo + margen
+HISTORY_STORIES.forEach((story) => {
+    story.dwell = story.cfg.chapters.map((c) => {
+        const words = (c.text.join(' ') + ' ' + (c.fact || '')).replace(/<[^>]+>/g, '').split(/\s+/).length;
+        return Math.max(13, words / 2.6 + 5);
+    });
+    // Tiempo acumulado antes de cada capítulo (para el paneo continuo de los planos únicos)
+    story.dwellStart = [];
+    story.dwellTotal = story.dwell.reduce((acc, d) => { story.dwellStart.push(acc); return acc + d; }, 0);
+});
+
+// Dibuja los capítulos y los puntos de la historia activa (se llama al abrirla).
+function renderHistoryChapters(story) {
+    const wrap = document.getElementById('hx-chapters');
+    const dots = document.getElementById('hx-dots');
+    wrap.innerHTML = '';
+    dots.innerHTML = '';
+    story.cfg.chapters.forEach((c, i) => {
+        const sec = document.createElement('section');
+        sec.className = 'hx-chapter';
+        const stats = c.stats ? `<div class="hx-stats">${c.stats.map((st) =>
+            `<div class="hx-stat"><b data-to="${st.n}" data-dec="${st.dec || 0}" data-pre="${st.prefix || ''}" data-suf="${st.suffix || ''}">0</b><span>${st.l}</span></div>`).join('')}</div>` : '';
+        sec.innerHTML = `<div class="hx-year">${c.year}<small>${c.tag}</small></div>
+            <span class="hx-kicker">${c.kicker}</span>
+            <h2 class="hx-title">${c.title}</h2>
+            <div class="hx-text">${c.text.map((t) => `<p>${t}</p>`).join('')}</div>
+            ${stats}
+            ${c.fact ? `<div class="hx-fact">${c.fact}</div>` : ''}`;
+        wrap.appendChild(sec);
+        const d = document.createElement('button');
+        d.setAttribute('aria-label', `Capítulo ${i + 1}`);
+        d.addEventListener('click', () => { if (historyTuning <= 0 && i !== historyIndex) goHistoryChapter(i); });
+        dots.appendChild(d);
+    });
+}
+
+function buildHistoryUI() {
+    document.getElementById('hx-prev').addEventListener('click', () => stepHistory(-1));
+    document.getElementById('hx-next').addEventListener('click', () => stepHistory(1));
+    document.getElementById('hx-play').addEventListener('click', toggleHistoryPlay);
+    document.getElementById('hx-close').addEventListener('click', () => closeHistory(false));
+    document.getElementById('hx-voice').addEventListener('click', toggleNarration);
+
+    historyHintEl = document.createElement('div');
+    historyHintEl.id = 'history-hint';
+    historyHintEl.innerHTML = 'Presiona <kbd>F</kbd> o <kbd>H</kbd> para revivir la historia de la radio';
+    document.body.appendChild(historyHintEl);
+}
+
+function markHistoryDots(n) {
+    document.querySelectorAll('#hx-dots button').forEach((d, i) => d.classList.toggle('on', i === n));
+    document.getElementById('hx-prev').disabled = n === 0;
+}
+
+// Coloca el plano de un capítulo: la cámara salta al empty de cámara (corte limpio,
+// tapado por el fundido) y el paneo arranca desde la izquierda.
+function applyHistoryShot(n) {
+    const shot = hxStory.shots[n] || hxCurrentShot; // si falta el empty, se queda en el plano anterior
+    const g = characterGroup.position;
+    if (shot) {
+        hxCamPos.copy(shot.pos);
+        if (shot.look) hxLook.copy(shot.look); else hxLook.set(g.x, g.y + 1.3, g.z);
+        hxCurrentShot = shot;
+    } else { // no hay ningún empty en el modelo: la cámara se queda y mira al personaje
+        hxCamPos.copy(camera.position);
+        hxLook.set(g.x, g.y + 1.3, g.z);
+        hxCurrentShot = { pos: hxCamPos.clone(), look: hxLook.clone() };
+    }
+}
+
+// Muestra el capítulo N (texto + plano de cámara) de inmediato.
+function showHistoryChapter(n) {
+    const secs = document.querySelectorAll('.hx-chapter');
+    n = Math.max(0, Math.min(secs.length - 1, n));
+    historyIndex = n;
+    historyElapsed = 0;
+    secs.forEach((s, i) => s.classList.toggle('active', i === n));
+    markHistoryDots(n);
+    document.getElementById('hx-chapters').scrollTop = 0;
+    const cite = hxStory.cfg.chapters[n].cite || '';
+    document.getElementById('hx-source').textContent = cite.replace(/^Fuentes?:\s*/i, '');
+    applyHistoryShot(n);
+    if (historyTuning <= 0) startNarration(n); // en la primera, la voz entra cuando termina la sintonía
+    cancelAnimationFrame(historyCountRAF);
+    const nums = secs[n].querySelectorAll('.hx-stat b');
+    if (nums.length) {
+        const t0 = performance.now();
+        const step = (now) => {
+            const k = Math.min((now - t0 - 500) / 1200, 1);
+            const e = k <= 0 ? 0 : 1 - Math.pow(1 - k, 3);
+            nums.forEach((el) => {
+                const to = parseFloat(el.dataset.to), dec = +el.dataset.dec;
+                const v = to * e;
+                el.textContent = el.dataset.pre + (dec ? v.toFixed(dec) : Math.round(v).toLocaleString('es-BO')) + el.dataset.suf;
+            });
+            if (k < 1) historyCountRAF = requestAnimationFrame(step);
+        };
+        historyCountRAF = requestAnimationFrame(step);
+    }
+}
+
+// Transición entre capítulos: fundido a azul (con un destello de "cambio de sintonía"),
+// corte de cámara en el punto más oscuro y fundido de vuelta.
+function goHistoryChapter(n, first) {
+    const total = hxStory.dwell.length;
+    n = Math.max(0, Math.min(total - 1, n));
+    const fade = document.getElementById('hx-fade');
+    clearTimeout(hxTransTimer);
+    // Plano único: entre capítulos NO hay corte, fundido ni chasquido; sólo cambia el texto
+    // y la cámara sigue su paneo. (El fundido de apertura y cierre sí se conserva: tapa el
+    // salto de la cámara del personaje al plano y de vuelta.)
+    if (hxStory.cfg.fixedShot && !first) {
+        showHistoryChapter(n);
+        return;
+    }
+    hxFading = true;
+    historyIndex = n;
+    stopNarration();
+    markHistoryDots(n);
+    fade.classList.add('on');
+    if (!first) historyPlayBlip();
+    hxTransTimer = setTimeout(() => {
+        if (!historyOpen) return;
+        showHistoryChapter(n);   // texto + corte de cámara, ya tapados por el fundido
+        fade.classList.remove('on');
+        hxFading = false;
+    }, first ? 650 : 480);
+}
+
+function historyPlayTuning(dur) {
+    try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        historyAudio = historyAudio || new AC();
+        const ac = historyAudio;
+        if (ac.state === 'suspended') ac.resume();
+        const vol = parseFloat(document.getElementById('volume').value) || 0.5;
+        const t = ac.currentTime;
+        const buf = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const src = ac.createBufferSource(); src.buffer = buf;
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2.5;
+        bp.frequency.setValueAtTime(350, t);
+        bp.frequency.exponentialRampToValueAtTime(3200, t + dur * 0.8);
+        bp.frequency.exponentialRampToValueAtTime(900, t + dur);
+        const g = ac.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.14 * vol, t + 0.15);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        src.connect(bp); bp.connect(g); g.connect(ac.destination);
+        src.start(t);
+        [880, 1318.5].forEach((f, i) => { // "ding" al encontrar la señal
+            const o = ac.createOscillator(), og = ac.createGain(), t2 = t + dur + i * 0.09;
+            o.type = 'sine'; o.frequency.value = f;
+            og.gain.setValueAtTime(0.0001, t2);
+            og.gain.exponentialRampToValueAtTime(0.16 * vol, t2 + 0.02);
+            og.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.9);
+            o.connect(og); og.connect(ac.destination); o.start(t2); o.stop(t2 + 1);
+        });
+    } catch (err) { /* el sonido es opcional */ }
+}
+
+// Pequeño chasquido de radio al cambiar de capítulo
+function historyPlayBlip() {
+    try {
+        const ac = historyAudio; if (!ac) return;
+        const vol = parseFloat(document.getElementById('volume').value) || 0.5;
+        const dur = 0.5, t = ac.currentTime;
+        const buf = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const src = ac.createBufferSource(); src.buffer = buf;
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 3;
+        bp.frequency.setValueAtTime(1800, t);
+        bp.frequency.exponentialRampToValueAtTime(700, t + dur);
+        const g = ac.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.09 * vol, t + 0.08);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        src.connect(bp); bp.connect(g); g.connect(ac.destination);
+        src.start(t);
+    } catch (err) { /* opcional */ }
+}
+
+function historyTick(now) {
+    if (!historyOpen) return;
+    const dt = Math.min((now - historyLast) / 1000, 0.1);
+    historyLast = now;
+    const root = document.getElementById('history-story');
+    const total = hxStory.dwell.length;
+
+    if (historyTuning > 0) {
+        // Fase 1: el dial sintoniza de 88.0 a 94.5 FM
+        historyTuning -= dt;
+        const k = Math.max(0, Math.min(1, 1 - historyTuning / historyTuningTotal));
+        const e = 1 - Math.pow(1 - k, 3);
+        document.getElementById('hx-freq-num').textContent =
+            Math.max(88, 88 + 6.5 * e + (1 - k) * Math.sin(k * 26) * 0.9).toFixed(1);
+        if (historyTuning <= 0) {
+            document.getElementById('hx-freq-num').textContent = '94.5';
+            root.classList.remove('tuning');
+            startNarration(historyIndex);
+        }
+    } else if (!historyPaused && !hxFading && !document.hidden) {
+        // Fase 2: la historia avanza sola
+        const dwell = hxStory.dwell[historyIndex];
+        // Con narración, el capítulo dura lo que dure la voz: si aún habla, el reloj se frena al final
+        // del tiempo estimado; si termina antes, se pasa al siguiente tras una breve pausa.
+        if (narrActive && historyElapsed >= dwell * 0.985) {
+            historyElapsed = dwell * 0.985;
+            narrHold += dt;
+            if (narrHold > 25) narrFinished(); // la voz no responde: seguimos por tiempo
+        } else historyElapsed += dt;
+        const p = (historyIndex + Math.min(historyElapsed / dwell, 1)) / total;
+        document.getElementById('hx-progress-bar').style.width = `${p * 100}%`;
+        const narrReady = narrOn && !narrActive && narrDone && narrDoneAt > 0;
+        const timeUp = narrOn ? (narrReady && historyElapsed >= narrDoneAt + CONFIG.narration.gapAfter)
+                              : historyElapsed >= dwell;
+        // si la narración no pudo arrancar (sin voz y sin audio), se usa el tiempo estimado de siempre
+        const fallbackUp = narrOn && narrDone && narrDoneAt === 0 && historyElapsed >= dwell;
+        if (timeUp || fallbackUp) {
+            if (historyIndex >= total - 1) { closeHistory(true); return; }
+            goHistoryChapter(historyIndex + 1);
+        }
+    }
+    historyRAF = requestAnimationFrame(historyTick);
+}
+
+function openHistory(story) {
+    if (historyOpen || panelOpen) return;
+    if (photoMode) exitPhotoMode();
+    hxStory = story || HISTORY_STORIES.find((st) => st.inside) || HISTORY_STORIES[0];
+    renderHistoryChapters(hxStory);
+    historyOpen = true;
+    panelOpen = true;                 // bloquea caminar, girar, zoom y apuntar
+    historyPaused = false;
+    hxFading = true;
+    document.getElementById('hx-play').textContent = '⏸';
+    for (const k in keys) keys[k] = false;
+    player.velocity.set(0, 0, 0);
+    document.getElementById('interact-hint').classList.remove('visible');
+    document.getElementById('crosshair').style.visibility = 'hidden';
+    if (historyHintEl) historyHintEl.classList.remove('visible');
+    if (document.pointerLockElement === canvas) document.exitPointerLock(); // libera el mouse para los botones
+
+    hxClock = 0;
+    hxPanP = 0;
+    hxCurrentShot = null;
+    hxCamPos.copy(camera.position);
+    camera.getWorldDirection(_hxDir);
+    hxLook.copy(camera.position).addScaledVector(_hxDir, 6);
+
+    const root = document.getElementById('history-story');
+    root.classList.add('visible', 'tuning');
+    root.setAttribute('aria-hidden', 'false');
+    document.getElementById('hx-progress-bar').style.width = '0%';
+    historyTuningTotal = hxStory.seen ? 1.0 : 1.8;
+    historyTuning = historyTuningTotal;
+    historyPlayTuning(historyTuningTotal);
+    hxStory.seen = true;
+    markStorySeen(hxStory);
+    updateDiscoveryHud(true);
+    setMusicDuck('story', CONFIG.narration.musicDuck); // la música baja sola mientras se cuenta la historia
+    discoverHud.classList.add('suspended');
+    storyMarkerGroup.visible = false;
+    updateNarrBtn();
+    goHistoryChapter(0, true);        // fundido -> corte al plano 1 -> fundido de vuelta
+    historyLast = performance.now();
+    cancelAnimationFrame(historyRAF);
+    historyRAF = requestAnimationFrame(historyTick);
+}
+
+function closeHistory(auto) {
+    if (!historyOpen) return;
+    historyOpen = false;               // la historia deja de avanzar al instante
+    stopNarration();
+    setMusicDuck('story', 1);          // la música vuelve a subir suave
+    discoverHud.classList.remove('suspended');
+    storyMarkerGroup.visible = true;
+    cancelAnimationFrame(historyRAF); cancelAnimationFrame(historyCountRAF);
+    clearTimeout(hxTransTimer);
+    const root = document.getElementById('history-story');
+    const fade = document.getElementById('hx-fade');
+    fade.classList.add('on');          // fundido a azul: tapa el regreso de la cámara al personaje
+    hxTransTimer = setTimeout(() => {
+        panelOpen = false;             // la cámara normal retoma el control (corte oculto bajo el fundido)
+        root.classList.remove('visible', 'tuning');
+        root.setAttribute('aria-hidden', 'true');
+        document.getElementById('crosshair').style.visibility = '';
+        player.velocity.set(0, 0, 0);
+        clock.getDelta();              // descarta el tiempo transcurrido
+        for (const k in keys) keys[k] = false;
+        hxFading = false;
+        if (mode === 'fly' && cameraMode === 'manual') canvas.requestPointerLock();
+        setTimeout(() => fade.classList.remove('on'), 700);
+    }, 450);
+    showToast(auto ? 'Fin de la historia · haz clic para seguir explorando · H para repetirla' : 'Cada punto dorado guarda otra historia ✨');
+}
+
+function stepHistory(dir) {
+    if (!historyOpen || historyTuning > 0) return;
+    const next = historyIndex + dir;
+    if (next >= hxStory.dwell.length) { closeHistory(true); return; }
+    if (next < 0) return;
+    goHistoryChapter(next);
+}
+
+function toggleHistoryPlay() {
+    if (!historyOpen) return;
+    historyPaused = !historyPaused;
+    document.getElementById('hx-play').textContent = historyPaused ? '▶' : '⏸';
+    if (historyPaused) pauseNarration(); else resumeNarration();
+    updateNarrBtn();
+}
+
+function handleHistoryKey(e) {
+    if (e.repeat) return;
+    switch (e.code) {
+        case 'Escape': case 'KeyF': case 'KeyH': closeHistory(false); break;
+        case 'ArrowRight': case 'KeyD': case 'Enter': stepHistory(1); break;
+        case 'ArrowLeft': case 'KeyA': stepHistory(-1); break;
+        case 'Space': e.preventDefault(); toggleHistoryPlay(); break;
+        case 'KeyV': toggleNarration(); break;
+    }
+}
+
+// Cámara de cine: se queda en el punto del capítulo y PANEA despacio de izquierda a
+// derecha alrededor del punto de mirada, siguiendo el avance del capítulo. Va DESPUÉS
+// de updatePlayer (que no toca la cámara mientras la historia está abierta).
+function updateHistoryCamera(delta) {
+    if (!historyOpen) return;
+    // El personaje se queda quieto, en reposo (sin patinar con la animación de caminar)
+    if (characterMixer) setCharacterAction('idle', delta);
+    updateProceduralWalkFallback(delta, false, false);
+    hxClock += delta;
+
+    // Progreso del capítulo (0 → 1): de él depende cuánto ha girado la cámara
+    let p;
+    if (hxStory.cfg.fixedShot) {
+        // Paneo continuo sobre TODA la historia: izquierda → derecha, sin reiniciarse por capítulo.
+        // Se suaviza para que un salto de capítulo (flechas) no dé un tirón de cámara.
+        const target = historyTuning > 0 ? 0
+            : Math.min((hxStory.dwellStart[historyIndex] + Math.min(historyElapsed, hxStory.dwell[historyIndex])) / hxStory.dwellTotal, 1);
+        hxPanP += (target - hxPanP) * Math.min(1, delta * 4);
+        p = hxPanP;
+    } else {
+        p = historyTuning > 0 ? 0 : Math.min(historyElapsed / hxStory.dwell[historyIndex], 1);
+    }
+    const half = (hxStory.cfg.panDegrees * Math.PI / 180) / 2;
+    const ang = half - 2 * half * p;   // empieza mirando a la izquierda del objetivo y termina a la derecha
+
+    _hxDir.subVectors(hxLook, hxCamPos);
+    const dist = Math.max(_hxDir.length(), 0.01);
+    _hxDir.divideScalar(dist);
+    // "derecha" de la cámara (en horizontal); si mira casi vertical, usa el eje X como respaldo
+    _hxRight.set(-_hxDir.z, 0, _hxDir.x);
+    if (_hxRight.lengthSq() < 0.02) _hxRight.set(1, 0, 0); else _hxRight.normalize();
+    // desplazar el punto de mirada hacia los lados = girar la cámara sobre su propio eje
+    _hxTarget.copy(hxLook).addScaledVector(_hxRight, -Math.tan(ang) * dist);
+
+    camera.position.copy(hxCamPos);
+    camera.position.y += Math.sin(hxClock * 0.6) * 0.02; // respiración casi imperceptible
+    camera.lookAt(_hxTarget);
+}
+
+// Se llama cada frame en modo manual: abre la historia al entrar a la zona del cubo.
+function updateHistoryZone() {
+    const p = characterGroup.position;
+    let anyInside = false, anySeenInside = false;
+    for (const story of HISTORY_STORIES) {
+        const z = story.zone;
+        if (!z) continue;
+        const m = story.cfg.margin;
+        const inside =
+            p.x >= z.min.x - m && p.x <= z.max.x + m &&
+            p.z >= z.min.z - m && p.z <= z.max.z + m &&
+            p.y >= z.min.y - 1.5 && p.y <= z.max.y + 2.0;
+        if (inside && !story.inside) {
+            story.inside = true;
+            if (!story.seen && !panelOpen && !historyOpen) openHistory(story); // primera vez: se abre sola
+        } else if (!inside && story.inside) {
+            story.inside = false;
+        }
+        if (inside) { anyInside = true; if (story.seen) anySeenInside = true; }
+    }
+    if (historyHintEl) {
+        historyHintEl.classList.toggle('visible', anyInside && anySeenInside && !historyOpen && !panelOpen && !aimedInteractable);
+    }
+}
+
+// ============================================
+// NARRACIÓN CON VOZ DE LOCUTOR (historias)
+// ============================================
+// Cada capítulo se lee en voz alta. Primero se intenta una grabación real
+// (CONFIG.narration.audioFolder); si no existe, se usa la voz en español del navegador.
+// La historia avanza al terminar la lectura (ver historyTick), así texto, cámara y voz van juntos.
+let narrOn = CONFIG.narration.enabled;
+let narrToken = 0;          // invalida lecturas anteriores (cambio de capítulo, cierre, pausa)
+let narrActive = false;     // true mientras el capítulo actual se está narrando
+let narrDone = true;        // true cuando la narración del capítulo actual terminó (o no hay)
+let narrDoneAt = 0;         // historyElapsed en el que terminó
+let narrSentences = [];
+let narrSentIdx = 0;
+let narrHold = 0;          // segundos que el reloj lleva esperando a la voz (seguro anti-cuelgue)
+let narrClip = null;        // <audio> si hay grabación real
+let narrVoice = null;
+const speech = ('speechSynthesis' in window) ? window.speechSynthesis : null;
+
+function pickNarratorVoice() {
+    if (!speech) return null;
+    const voices = speech.getVoices().filter((v) => /^es([-_]|$)/i.test(v.lang));
+    if (!voices.length) return null;
+    const langRank = (v) => {
+        const l = v.lang.replace('_', '-').toLowerCase();
+        if (l === 'es-bo') return 0;
+        if (l === 'es-us' || l === 'es-419') return 1;
+        if (l === 'es-mx') return 2;
+        return 3;
+    };
+    const male = /pablo|jorge|diego|raul|raúl|carlos|juan|enrique|miguel|alvaro|álvaro|andres|andrés|male|hombre/i;
+    return voices.slice().sort((a, b) =>
+        (male.test(b.name) - male.test(a.name)) || (langRank(a) - langRank(b)) ||
+        (a.localService === b.localService ? 0 : a.localService ? -1 : 1))[0];
+}
+if (speech) {
+    narrVoice = pickNarratorVoice();
+    speech.addEventListener('voiceschanged', () => { narrVoice = pickNarratorVoice(); });
+}
+
+function narrVolume() {
+    const v = getUserVolume();
+    return v <= 0 ? 0 : Math.min(1, 0.5 + v);
+}
+
+// Texto que se lee: título + párrafos + dato curioso (sin etiquetas HTML)
+function narrationTextFor(ch) {
+    const strip = (h) => h.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    const parts = [strip(ch.title), ...ch.text.map(strip)];
+    if (ch.fact) parts.push('¿Sabías que? ' + strip(ch.fact));
+    return parts.join(' ');
+}
+function splitSentences(text) {
+    // frases cortas = la voz no se corta a mitad de párrafo y se puede pausar/reanudar sin perder el hilo
+    return (text.match(/[^.!?…]+[.!?…]+["”»)]*|[^.!?…]+$/g) || [text]).map((x) => x.trim()).filter(Boolean);
+}
+
+function stopNarration() {
+    narrToken++;
+    narrActive = false;
+    if (speech) speech.cancel();
+    if (narrClip) { narrClip.onended = narrClip.onerror = null; narrClip.pause(); narrClip = null; }
+    updateNarrBtn();
+}
+
+function narrFinished() {
+    narrActive = false;
+    narrDone = true;
+    narrDoneAt = historyElapsed;
+    updateNarrBtn();
+}
+
+function speakNextSentence(token) {
+    if (token !== narrToken) return;
+    if (narrSentIdx >= narrSentences.length) { narrFinished(); return; }
+    const u = new SpeechSynthesisUtterance(narrSentences[narrSentIdx]);
+    u.lang = narrVoice ? narrVoice.lang : 'es-ES';
+    if (narrVoice) u.voice = narrVoice;
+    u.rate = CONFIG.narration.rate;
+    u.pitch = CONFIG.narration.pitch;
+    u.volume = narrVolume();
+    u.onend = () => { if (token !== narrToken) return; narrSentIdx++; speakNextSentence(token); };
+    u.onerror = (ev) => {
+        if (token !== narrToken) return;
+        if (ev.error === 'canceled' || ev.error === 'interrupted') return;
+        narrFinished(); // si la voz falla, la historia sigue por tiempo como antes
+    };
+    speech.speak(u);
+}
+
+// Empieza a narrar el capítulo n de la historia activa
+function startNarration(n) {
+    stopNarration();
+    narrDone = true; narrDoneAt = 0; narrHold = 0;
+    if (!narrOn) return;
+    const ch = hxStory.cfg.chapters[n];
+    if (!ch) return;
+    const token = narrToken;
+    narrActive = true; narrDone = false;
+    updateNarrBtn();
+
+    const fallbackToVoice = () => {
+        if (token !== narrToken) return;
+        narrClip = null;
+        if (!speech) { narrFinished(); return; }
+        narrSentences = splitSentences(narrationTextFor(ch));
+        narrSentIdx = 0;
+        if (!narrVoice) narrVoice = pickNarratorVoice();
+        if (!historyPaused) speakNextSentence(token);
+    };
+
+    // 1) grabación real (opcional)
+    const id = CONFIG.narration.storyIds[HISTORY_STORIES.indexOf(hxStory)] || 'historia';
+    const clip = new Audio(`${CONFIG.narration.audioFolder}${id}_${n + 1}.mp3`);
+    clip.volume = narrVolume();
+    narrClip = clip;
+    clip.onended = () => { if (token === narrToken) { narrClip = null; narrFinished(); } };
+    clip.onerror = fallbackToVoice;               // no hay archivo → voz del navegador
+    if (historyPaused) return;
+    clip.play().catch((err) => { if (err && err.name === 'NotAllowedError') fallbackToVoice(); });
+}
+
+function pauseNarration() {
+    if (!narrActive) return;
+    if (narrClip) narrClip.pause();
+    else if (speech) { narrToken++; speech.cancel(); } // se retoma desde la frase en curso
+}
+function resumeNarration() {
+    if (!narrActive) return;
+    if (narrClip) { narrClip.play().catch(() => {}); return; }
+    if (speech) { const token = narrToken; speakNextSentence(token); }
+}
+
+function toggleNarration() {
+    narrOn = !narrOn;
+    if (!narrOn) { stopNarration(); narrDone = true; narrDoneAt = historyElapsed; }
+    else if (historyOpen && historyTuning <= 0) startNarration(historyIndex);
+    updateNarrBtn();
+    showToast(narrOn ? 'Narración activada 🎙' : 'Narración desactivada');
+}
+
+function updateNarrBtn() {
+    const b = document.getElementById('hx-voice');
+    if (!b) return;
+    b.classList.toggle('on', narrOn);
+    b.classList.toggle('speaking', narrOn && narrActive && !historyPaused);
+    b.title = narrOn ? 'Silenciar narración (V)' : 'Activar narración (V)';
+}
+
+// ============================================
+// GUÍA Y PROGRESO: contador de descubrimientos + minimapa/brújula
+// ============================================
+const discoverHud = document.getElementById('discovery-hud');
+const dcPointsEl = document.getElementById('dc-points');
+const dcStoriesEl = document.getElementById('dc-stories');
+const dcBarEl = document.getElementById('dc-bar');
+const mmCanvas = document.getElementById('minimap');
+const mmCtx = mmCanvas.getContext('2d');
+const MM_SIZE = CONFIG.guide.minimapSize;
+const MM_DPR = Math.min(window.devicePixelRatio || 1, 2);
+mmCanvas.width = MM_SIZE * MM_DPR; mmCanvas.height = MM_SIZE * MM_DPR;
+mmCanvas.style.width = MM_SIZE + 'px'; mmCanvas.style.height = MM_SIZE + 'px';
+
+const GLOW_SEEN = 'rgba(110,215,150,0.85)';
+let allDoneCelebrated = false;
+const storyMarkerGroup = new THREE.Group(); // anillos en el piso donde está cada cubo de historia
+storyMarkerGroup.visible = false;
+scene.add(storyMarkerGroup);
+
+function buildStoryMarkers() {
+    HISTORY_STORIES.forEach((story) => {
+        if (!story.zone || story.marker) return;
+        const c = story.zone.getCenter(new THREE.Vector3());
+        const size = story.zone.getSize(new THREE.Vector3());
+        const r = Math.max(0.35, Math.min(size.x, size.z) * 0.5 + 0.1);
+        const g = new THREE.Group();
+        g.position.set(c.x, story.zone.min.y + 0.05, c.z);
+        const mat = (op) => new THREE.MeshBasicMaterial({ color: 0xc9a84c, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+        const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.82, r, 48), mat(0.85));
+        ring.rotation.x = -Math.PI / 2;
+        const beam = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.9, r * 0.9, 2.4, 32, 1, true), mat(0.12));
+        beam.position.y = 1.2;
+        g.add(ring, beam);
+        storyMarkerGroup.add(g);
+        story.marker = { group: g, ring, beam };
+        if (story.seen) markStorySeen(story);
+    });
+}
+
+function markStorySeen(story) {
+    if (!story || !story.marker) return;
+    story.marker.ring.material.color.set(0x6ed796);
+    story.marker.beam.material.color.set(0x6ed796);
+    story.marker.beam.material.opacity = 0.06;
+}
+
+function markHotspotSeen(h) {
+    if (h.seen) return;
+    h.seen = true;
+    h.marker.material.map = getMarkerTexture('green'); // ya lo viste: anillo verde con check
+    h.marker.material.needsUpdate = true;
+    updateDiscoveryHud(true);
+}
+
+function updateDiscoveryHud(celebrate) {
+    const total = hotspots.length;
+    const seen = hotspots.filter((h) => h.seen).length;
+    const stories = HISTORY_STORIES.filter((st) => st.zone);
+    const storiesSeen = stories.filter((st) => st.seen).length;
+    dcPointsEl.textContent = `${seen} de ${total}`;
+    dcStoriesEl.textContent = `${storiesSeen} de ${stories.length}`;
+    dcBarEl.style.width = total ? `${(seen / total) * 100}%` : '0%';
+    const complete = total > 0 && seen === total && storiesSeen === stories.length;
+    discoverHud.classList.toggle('complete', complete);
+    if (celebrate && complete && !allDoneCelebrated) {
+        allDoneCelebrated = true;
+        setTimeout(() => showToast('¡Lo descubriste todo! Gracias por recorrer Radio Nacional Huanuni ✨'), 600);
+    }
+}
+
+// --- Minimapa: el edificio se dibuja una sola vez (huella de pisos y muros) en un canvas aparte ---
+let mmFootprint = null; // { canvas, minX, minZ, scale }
+function buildMinimapFootprint() {
+    if (!buildingBox || (floorMeshes.length + wallMeshes.length) === 0) return;
+    const pad = 2;
+    const minX = buildingBox.min.x - pad, minZ = buildingBox.min.z - pad;
+    const w = buildingBox.max.x - buildingBox.min.x + pad * 2;
+    const h = buildingBox.max.z - buildingBox.min.z + pad * 2;
+    const scale = 720 / Math.max(w, h);
+    const cv = document.createElement('canvas');
+    cv.width = Math.ceil(w * scale); cv.height = Math.ceil(h * scale);
+    const cx = cv.getContext('2d');
+    const box = new THREE.Box3();
+    cx.fillStyle = 'rgba(255,255,255,0.10)';
+    floorMeshes.forEach((m) => {
+        box.setFromObject(m);
+        cx.fillRect((box.min.x - minX) * scale, (box.min.z - minZ) * scale, (box.max.x - box.min.x) * scale, (box.max.z - box.min.z) * scale);
+    });
+    cx.fillStyle = 'rgba(255,255,255,0.55)';
+    wallMeshes.forEach((m) => {
+        box.setFromObject(m);
+        const dx = box.max.x - box.min.x, dz = box.max.z - box.min.z;
+        if (Math.min(dx, dz) > 1.0) return; // sólo muros finos; un bloque grande ensuciaría el mapa
+        cx.fillRect((box.min.x - minX) * scale, (box.min.z - minZ) * scale, Math.max(dx * scale, 1.5), Math.max(dz * scale, 1.5));
+    });
+    mmFootprint = { canvas: cv, minX, minZ, scale };
+}
+
+const MM_GOLD = '#e0c878', MM_GREEN = '#6ed796';
+function drawMinimap(time) {
+    if (!mmFootprint) buildMinimapFootprint();
+    const S = MM_SIZE * MM_DPR, R = S / 2;
+    const px = characterGroup.position.x, pz = characterGroup.position.z, py = characterGroup.position.y;
+    const ppm = (R - 14 * MM_DPR) / CONFIG.guide.minimapRange; // píxeles por metro
+    const yaw = player.yaw;
+    const ctx = mmCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, S, S);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(R, R, R - 1, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = 'rgba(8,10,18,0.78)'; ctx.fillRect(0, 0, S, S);
+
+    // Mundo -> minimapa: el "frente" del jugador queda siempre ARRIBA
+    const cos = Math.cos(yaw), sin = Math.sin(yaw);
+    const toMap = (x, z) => {
+        const dx = x - px, dz = z - pz;
+        return [R + (dx * cos - dz * sin) * ppm, R + (dx * sin + dz * cos) * ppm];
+    };
+
+    // Edificio
+    if (mmFootprint) {
+        ctx.save();
+        ctx.translate(R, R);
+        ctx.rotate(yaw);
+        ctx.translate(-(px - mmFootprint.minX) * ppm, -(pz - mmFootprint.minZ) * ppm);
+        ctx.scale(ppm / mmFootprint.scale, ppm / mmFootprint.scale);
+        ctx.drawImage(mmFootprint.canvas, 0, 0);
+        ctx.restore();
+    }
+
+    // Puntos: dorados = pendientes, verdes = vistos. Si están lejos, se pegan al borde como flechas.
+    const edge = R - 12 * MM_DPR;
+    const dot = (x, z, y, color, shape, pulse) => {
+        let [mx, my] = toMap(x, z);
+        let dx = mx - R, dy = my - R;
+        const d = Math.hypot(dx, dy);
+        const far = d > edge;
+        if (far) { dx *= edge / d; dy *= edge / d; mx = R + dx; my = R + dy; }
+        const r = (shape === 'sq' ? 4.2 : 3.4) * MM_DPR * (far ? 0.8 : 1);
+        ctx.globalAlpha = far ? 0.7 : 1;
+        if (pulse && !far) {
+            ctx.strokeStyle = color; ctx.lineWidth = 1.5 * MM_DPR;
+            ctx.beginPath(); ctx.arc(mx, my, r + (2 + ((time * 2) % 1) * 6) * MM_DPR, 0, Math.PI * 2);
+            ctx.globalAlpha = 1 - ((time * 2) % 1); ctx.stroke(); ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        if (shape === 'sq') ctx.rect(mx - r, my - r, r * 2, r * 2); else ctx.arc(mx, my, r, 0, Math.PI * 2);
+        ctx.fill();
+        const dyW = y - py;
+        if (Math.abs(dyW) > 2.2) { // otro piso: ▲ arriba / ▼ abajo
+            ctx.fillStyle = '#fff'; ctx.font = `${7 * MM_DPR}px sans-serif`; ctx.textAlign = 'center';
+            ctx.fillText(dyW > 0 ? '▲' : '▼', mx, my - r - 2 * MM_DPR);
+        }
+        ctx.globalAlpha = 1;
+    };
+
+    // el pendiente más cercano late para guiar
+    let nearest = null, nd = Infinity;
+    hotspots.forEach((h) => { if (!h.seen) { const d = Math.hypot(h.position.x - px, h.position.z - pz); if (d < nd) { nd = d; nearest = h; } } });
+    hotspots.forEach((h) => dot(h.position.x, h.position.z, h.position.y, h.seen ? MM_GREEN : MM_GOLD, 'c', h === nearest));
+    HISTORY_STORIES.forEach((st) => {
+        if (!st.zone) return;
+        const c = st.zone.getCenter(new THREE.Vector3());
+        dot(c.x, c.z, st.zone.min.y, st.seen ? MM_GREEN : MM_GOLD, 'sq', false);
+    });
+    ctx.restore();
+
+    // Aro + brújula (la N gira con la cámara)
+    ctx.strokeStyle = 'rgba(201,168,76,0.55)'; ctx.lineWidth = 1.5 * MM_DPR;
+    ctx.beginPath(); ctx.arc(R, R, R - 1, 0, Math.PI * 2); ctx.stroke();
+    // N en el mundo = -Z
+    const nxp = R + (0 * cos - (-1) * sin) * (R - 9 * MM_DPR);
+    const nyp = R + (0 * sin + (-1) * cos) * (R - 9 * MM_DPR);
+    ctx.fillStyle = '#d60000';
+    ctx.beginPath(); ctx.arc(nxp, nyp, 7 * MM_DPR, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `700 ${9 * MM_DPR}px Montserrat, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('N', nxp, nyp + 0.5 * MM_DPR);
+
+    // Jugador (siempre en el centro, apuntando arriba)
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#050508'; ctx.lineWidth = 1.5 * MM_DPR;
+    ctx.beginPath();
+    ctx.moveTo(R, R - 7 * MM_DPR); ctx.lineTo(R + 5 * MM_DPR, R + 5 * MM_DPR); ctx.lineTo(R, R + 2 * MM_DPR); ctx.lineTo(R - 5 * MM_DPR, R + 5 * MM_DPR);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+
+let _mmLast = 0;
+function updateGuide(time) {
+    if (!discoverHud.classList.contains('visible') || photoMode) return;
+    if (time - _mmLast < 0.033) return; // ~30 fps es suficiente para el minimapa
+    _mmLast = time;
+    drawMinimap(time);
+}
+
+
+buildHistoryUI();
+
+// ============================================
+// MODO FOTO: captura limpia (sin HUD) con el logo, lista para compartir
+// ============================================
+// P (o el botón 📷) entra al modo foto: se ocultan menús, mira, contador y marcadores; sigues
+// moviéndote con WASD y puedes cambiar día/noche con N. Enter (o 📸) captura. La imagen sale con una
+// franja de marca (logo + nombre + FM + sitio) y se puede descargar o compartir (WhatsApp, etc.).
+let photoMode = false;
+let photoModalOpen = false;
+let photoBlob = null;
+let photoUrl = '';
+const photoModalEl = document.getElementById('photo-modal');
+const photoImgEl = document.getElementById('photo-img');
+const photoNoteEl = document.getElementById('photo-note');
+const photoShareBtn = document.getElementById('photo-share');
+
+function enterPhotoMode() {
+    if (photoMode || mode !== 'fly' || cameraMode !== 'manual' || panelOpen || historyOpen) return;
+    photoMode = true;
+    document.body.classList.add('photo-mode');
+    hotspotGroup.visible = false;          // sin puntos dorados ni anillos en la foto
+    storyMarkerGroup.visible = false;
+    document.getElementById('interact-hint').classList.remove('visible');
+}
+function exitPhotoMode() {
+    if (!photoMode) return;
+    photoMode = false;
+    document.body.classList.remove('photo-mode');
+    hotspotGroup.visible = true;
+    storyMarkerGroup.visible = !historyOpen;
+}
+function togglePhotoMode() { photoMode ? exitPhotoMode() : enterPhotoMode(); }
+
+// El logo.glb se renderiza una vez, con fondo transparente, en el visor de exhibición (otro canvas WebGL)
+function renderLogoSticker(px) {
+    if (!logoModelTemplate) return null;
+    try {
+        setExhibitObject(logoModelTemplate);
+        if (!exhibitObject) return null;
+        exhibitPivot.rotation.y = 0;
+        exhibitRenderer.setSize(px, px, false);
+        exhibitCamera.aspect = 1;
+        exhibitCamera.updateProjectionMatrix();
+        exhibitRenderer.setClearColor(0x000000, 0);
+        exhibitRenderer.render(exhibitScene, exhibitCamera);
+        const c = document.createElement('canvas');
+        c.width = c.height = px;
+        c.getContext('2d').drawImage(exhibitCanvasEl, 0, 0, px, px);
+        clearExhibitStage();
+        return c;
+    } catch (err) { clearExhibitStage(); return null; }
+}
+
+function drawPhotoBrand(ctx, W, H, logo) {
+    const barH = Math.max(86, Math.round(Math.min(W, H) * 0.15));
+    const g = ctx.createLinearGradient(0, H - barH * 1.5, 0, H);
+    g.addColorStop(0, 'rgba(5,5,8,0)'); g.addColorStop(1, 'rgba(5,5,8,0.88)');
+    ctx.fillStyle = g; ctx.fillRect(0, H - barH * 1.5, W, barH * 1.5);
+    const lg = ctx.createLinearGradient(0, 0, W, 0);
+    lg.addColorStop(0, '#d60000'); lg.addColorStop(1, '#c9a84c');
+    ctx.fillStyle = lg; ctx.fillRect(0, H - 5, W, 5);
+
+    const pad = barH * 0.3;
+    const cy = H - barH * 0.5 - 4;
+    let x = pad;
+    if (logo) {
+        const ls = barH * 0.86;
+        ctx.drawImage(logo, x, cy - ls / 2, ls, ls);
+        x += ls + pad * 0.6;
+    }
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    const f1 = Math.round(barH * 0.27);
+    ctx.font = `800 ${f1}px Montserrat, Poppins, sans-serif`;
+    const parts = [['Radio ', '#ff3b3b'], ['Nacional ', '#c9a84c'], ['Huanuni', '#ffffff']];
+    let tx = x;
+    parts.forEach(([t, c]) => { ctx.fillStyle = c; ctx.fillText(t, tx, cy - 2); tx += ctx.measureText(t).width; });
+    ctx.font = `500 ${Math.round(barH * 0.16)}px Poppins, sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.fillText('Museo Virtual 3D · FM 94.5 · Oruro, Bolivia', x, cy + barH * 0.22);
+    ctx.textAlign = 'right';
+    ctx.font = `600 ${Math.round(barH * 0.17)}px Poppins, sans-serif`;
+    ctx.fillStyle = '#e0c878';
+    ctx.fillText(CONFIG.photo.siteLabel, W - pad, cy + barH * 0.2);
+}
+
+function capturePhoto() {
+    if (!photoMode || photoModalOpen) return;
+    // La lectura del canvas WebGL debe ocurrir en el mismo ciclo del render, o sale en blanco
+    renderer.render(scene, camera);
+    const sw = canvas.width, sh = canvas.height;
+    const k = Math.min(1, CONFIG.photo.maxSide / Math.max(sw, sh));
+    const out = document.createElement('canvas');
+    out.width = Math.round(sw * k); out.height = Math.round(sh * k);
+    const ctx = out.getContext('2d');
+    ctx.drawImage(canvas, 0, 0, out.width, out.height);
+    const logo = renderLogoSticker(512);
+    drawPhotoBrand(ctx, out.width, out.height, logo);
+
+    const flash = document.getElementById('photo-flash');
+    flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
+
+    out.toBlob((blob) => {
+        if (!blob) { showToast('No se pudo crear la foto'); return; }
+        if (photoUrl) URL.revokeObjectURL(photoUrl);
+        photoBlob = blob;
+        photoUrl = URL.createObjectURL(blob);
+        photoImgEl.src = photoUrl;
+        photoNoteEl.textContent = '';
+        photoShareBtn.style.display = canSharePhoto() ? '' : 'none';
+        photoModalOpen = true;
+        panelOpen = true;
+        if (document.pointerLockElement === canvas) document.exitPointerLock();
+        photoModalEl.classList.add('visible');
+    }, 'image/jpeg', 0.92);
+}
+
+function photoFileName() {
+    const d = new Date(), z = (n) => String(n).padStart(2, '0');
+    return `radio-nacional-huanuni-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.jpg`;
+}
+function canSharePhoto() {
+    try {
+        return !!(navigator.canShare && photoBlob && navigator.canShare({ files: [new File([photoBlob], 'foto.jpg', { type: 'image/jpeg' })] }));
+    } catch (e) { return false; }
+}
+function closePhotoModal() {
+    if (!photoModalOpen) return;
+    photoModalOpen = false;
+    panelOpen = false;
+    photoModalEl.classList.remove('visible');
+    player.velocity.set(0, 0, 0);
+    clock.getDelta();
+}
+
+document.getElementById('btn-photo').addEventListener('click', enterPhotoMode);
+document.getElementById('photo-shoot').addEventListener('click', capturePhoto);
+document.getElementById('photo-exit').addEventListener('click', exitPhotoMode);
+document.getElementById('photo-close').addEventListener('click', closePhotoModal);
+document.getElementById('photo-download').addEventListener('click', () => {
+    if (!photoUrl) return;
+    const a = document.createElement('a');
+    a.href = photoUrl; a.download = photoFileName();
+    document.body.appendChild(a); a.click(); a.remove();
+    photoNoteEl.textContent = 'Foto guardada en tus descargas ✔';
+});
+photoShareBtn.addEventListener('click', async () => {
+    if (!photoBlob) return;
+    try {
+        const file = new File([photoBlob], photoFileName(), { type: 'image/jpeg' });
+        await navigator.share({
+            files: [file],
+            title: 'Radio Nacional Huanuni · Museo Virtual 3D',
+            text: `${CONFIG.photo.shareText} ${location.origin}${location.pathname}`,
+        });
+    } catch (err) {
+        if (err && err.name !== 'AbortError') photoNoteEl.textContent = 'No se pudo abrir el menú de compartir. Descarga la foto y envíala.';
     }
 });
 
@@ -2062,6 +3848,8 @@ function animate() {
         } else {
             updatePlayer(delta);
             updateInteractionAim();
+            updateHistoryZone();
+            updateHistoryCamera(delta);
         }
         updateFPS();
     }
@@ -2072,13 +3860,21 @@ function animate() {
     // Animación (idle/caminar) del personaje jugable
     if (characterMixer) characterMixer.update(delta);
 
-    // Animación sutil de los marcadores de hotspots (pulso)
-    if (hotspotGroup.visible) {
-        hotspotGroup.children.forEach((marker, i) => {
-            const s = 0.55 + Math.sin(time * 2 + i * 1.3) * 0.08;
-            marker.scale.set(s, s, 1);
+    // Guía: minimapa + marcadores de los cubos de historia
+    if (mode === 'fly' && cameraMode === 'manual') {
+        updateGuide(time);
+        HISTORY_STORIES.forEach((st) => {
+            if (!st.marker) return;
+            const k = 1 + Math.sin(time * 2.2 + 1) * 0.04;
+            st.marker.ring.scale.set(k, k, k);
+            if (!st.seen) st.marker.beam.material.opacity = 0.1 + Math.sin(time * 2.2) * 0.04;
         });
     }
+
+    if (radioPanelOpen) updateRadioVisuals(time);
+
+    // Marcadores y etiquetas (distancia, oclusion, pulso)
+    updateWorldTags(time, delta);
 
     particles.rotation.y += delta * 0.03;
     particles.rotation.x += delta * 0.01;

@@ -3,7 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Nacional Huanuni | Experiencia 3D Inmersiva</title>
+    <title>Radio Nacional Huanuni · Museo Virtual 3D</title>
+
+    <!-- ============================================================
+         SEO + COMPARTIR (WhatsApp, Facebook, Messenger, X)
+         La dirección de la página ya está puesta (GitHub Pages).
+         Si algún día cambia de dirección, reemplázala en: canonical, og:url,
+         og:image y twitter:image.
+         Para cambiar la imagen que aparece al compartir: reemplaza img/og-image.jpg
+         (1200 × 630 px, menos de 300 KB).
+         ============================================================ -->
+    <meta name="description" content="Camina por la radio de los mineros de Huanuni, descubre su historia desde 1958 y escúchala en vivo. Museo virtual 3D · FM 94.5, Oruro, Bolivia.">
+    <meta name="theme-color" content="#050508">
+    <link rel="canonical" href="https://jh0nnatan.github.io/grafica_tercer_parcial/">
+
+    <!-- Favicon e íconos -->
+    <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
+
+    <!-- Open Graph (WhatsApp, Facebook, Messenger, LinkedIn) -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Radio Nacional Huanuni">
+    <meta property="og:locale" content="es_BO">
+    <meta property="og:title" content="Radio Nacional Huanuni · Museo Virtual 3D">
+    <meta property="og:description" content="Camina por la radio de los mineros, descubre su historia desde 1958 y escúchala en vivo. FM 94.5 · Oruro, Bolivia.">
+    <meta property="og:url" content="https://jh0nnatan.github.io/grafica_tercer_parcial/">
+    <meta property="og:image" content="https://jh0nnatan.github.io/grafica_tercer_parcial/img/og-image.jpg">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Radio Nacional Huanuni, museo virtual 3D · FM 94.5">
+
+    <!-- X / Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Radio Nacional Huanuni · Museo Virtual 3D">
+    <meta name="twitter:description" content="Camina por la radio de los mineros, descubre su historia y escúchala en vivo.">
+    <meta name="twitter:image" content="https://jh0nnatan.github.io/grafica_tercer_parcial/img/og-image.jpg">
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,6 +50,12 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+
+    <noscript>
+        <p style="position:fixed;inset:0;z-index:99;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:#050508;color:#e8e6e3;font-family:sans-serif">
+            Radio Nacional Huanuni · Museo Virtual 3D necesita JavaScript para mostrar la experiencia. Actívalo en tu navegador e inténtalo de nuevo.
+        </p>
+    </noscript>
 
     <!-- Canvas principal de Three.js -->
     <canvas id="main-canvas"></canvas>
@@ -43,10 +85,8 @@
             <div class="controls-list">
                 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Moverse<br>
                 <kbd>Mouse</kbd> Mirar &nbsp;|&nbsp; <kbd>Q</kbd><kbd>E</kbd> Rotar<br>
-                <kbd>Espacio</kbd> / <kbd>R</kbd> Subir<br>
-                <kbd>Ctrl</kbd> / <kbd>F</kbd> Bajar<br>
                 <kbd>Shift</kbd> Correr &nbsp;|&nbsp; <kbd>N</kbd> Día/Noche<br>
-                <kbd>E</kbd> Interactuar &nbsp;|&nbsp; <kbd>Z</kbd> Reiniciar
+                <kbd>F</kbd> / <kbd>Clic</kbd> Interactuar &nbsp;|&nbsp; <kbd>Z</kbd> Reiniciar
             </div>
         </div>
     </div>
@@ -66,6 +106,7 @@
     <button class="control-btn" id="btn-fullscreen" title="Pantalla completa">⛶</button>
     <button class="control-btn" id="btn-settings" title="Ajustes">⚙️</button>
     <button class="control-btn" id="btn-help" title="Ayuda">?</button>
+    <button class="control-btn" id="btn-photo" title="Modo foto (P)" aria-label="Modo foto">📷</button>
 
     <!-- Panel de ajustes -->
     <div id="settings-panel">
@@ -105,16 +146,38 @@
          un gesto real del usuario para poder bloquear el puntero) -->
     <div id="center-message">
         <h2>TOMA EL <span style="color:var(--gold);">CONTROL</span></h2>
-        <p>El recorrido guiado terminó.<br>Explora libremente, mira los puntos dorados y presiona <kbd>E</kbd> para descubrir su historia.</p>
+        <p>El recorrido guiado terminó.<br>Explora libremente, busca los puntos dorados y presiona <kbd>F</kbd> o haz clic para descubrir su historia.<br><small style="opacity:.7">Con <kbd>Esc</kbd> pausas · este aviso solo aparece esta vez.</small></p>
         <button id="btn-start">EXPLORAR LIBREMENTE</button>
     </div>
 
     <div id="toast"></div>
 
+    <!-- Modo foto: barra de captura, flash y vista previa para descargar o compartir -->
+    <div id="photo-bar">
+        <span class="photo-hint">Modo foto · encuadra con el mouse y <kbd>WASD</kbd> · <kbd>N</kbd> día/noche</span>
+        <button id="photo-shoot" class="photo-btn photo-btn-main">📸 Capturar <kbd>Enter</kbd></button>
+        <button id="photo-exit" class="photo-btn">Salir <kbd>P</kbd></button>
+    </div>
+    <div id="photo-flash"></div>
+    <div id="photo-modal" role="dialog" aria-label="Tu foto">
+        <div class="photo-modal-inner">
+            <img id="photo-img" alt="Foto capturada del museo virtual">
+            <div class="photo-actions">
+                <button id="photo-download" class="photo-btn photo-btn-main">⬇ Descargar</button>
+                <button id="photo-share" class="photo-btn">📤 Compartir</button>
+                <button id="photo-close" class="photo-btn">Seguir encuadrando</button>
+            </div>
+            <p id="photo-note" role="status"></p>
+        </div>
+    </div>
+
     <!-- Mira central (modo manual) -->
     <div id="crosshair">
         <span class="crosshair-dot"></span>
     </div>
+
+    <!-- Aviso discreto para continuar tras pulsar Esc (reemplaza al cartel grande) -->
+    <div id="resume-hint"><span class="rh-dot"></span>Pausa · haz <kbd>clic</kbd> para continuar</div>
 
     <!-- Aviso de interacción con hotspots -->
     <div id="interact-hint"></div>
@@ -129,7 +192,7 @@
             </div>
             <h3 id="hotspot-title"></h3>
             <p id="hotspot-desc"></p>
-            <span class="hotspot-hint">Presiona <kbd>E</kbd> o el botón ✕ para continuar explorando</span>
+            <span class="hotspot-hint">Presiona <kbd>F</kbd> o el botón ✕ para continuar explorando</span>
         </div>
     </div>
 
@@ -145,12 +208,62 @@
             <h3 class="radio-station">Radio Nacional <span>Huanuni</span></h3>
             <p class="radio-freq">FM 94.5 · Oruro, Bolivia</p>
             <div class="radio-bars" id="radio-bars"></div>
-            <div class="radio-status" id="radio-status">Sintonizando…</div>
+            <div class="radio-status" id="radio-status" role="status" aria-live="polite">Sintonizando…</div>
+            <div class="radio-note">🎵 La música de fondo se pausa mientras escuchas la radio</div>
             <div class="radio-controls">
                 <button id="radio-toggle-btn" class="radio-btn-primary">⏸ Pausar</button>
                 <a href="https://www.radionacionaldehuanuni.com/" target="_blank" rel="noopener" class="radio-btn-secondary">🌐 Visitar sitio web</a>
             </div>
-            <span class="radio-hint">Presiona <kbd>E</kbd> o el botón ✕ para volver</span>
+            <span class="radio-hint">Presiona <kbd>F</kbd> o el botón ✕ para volver</span>
+        </div>
+    </div>
+
+
+    <!-- Guía y progreso (modo manual): contador de descubrimientos + minimapa con brújula.
+         Los puntos dorados son pendientes; los verdes ya los viste. -->
+    <div id="discovery-hud" aria-label="Progreso de descubrimientos">
+        <div class="dc-card">
+            <div class="dc-row"><span>Puntos dorados</span><b id="dc-points">0 de 0</b></div>
+            <div class="dc-track"><div class="dc-bar" id="dc-bar"></div></div>
+            <div class="dc-row dc-row-sm"><span>Historias</span><b id="dc-stories">0 de 0</b></div>
+        </div>
+        <canvas id="minimap" width="176" height="176"></canvas>
+    </div>
+
+    <!-- Historia narrada (cubo "mostrar_historia"): al cruzar el portón el personaje
+         se detiene y la cámara 3D recorre puntos del edificio mientras se cuenta la
+         historia. Capa cinematográfica sobre la escena: barras de cine, tarjeta
+         de capítulo y fuente al pie. Los capítulos vienen de CONFIG.history. -->
+    <div id="history-story" aria-hidden="true">
+        <div class="hx-edge"></div>
+        <div class="hx-fade" id="hx-fade"></div>
+
+        <div class="hx-bar hx-bar-top">
+            <div class="hx-bar-in">
+                <span class="hx-live"></span>
+                <span class="hx-bar-title">RADIO NACIONAL <b>HUANUNI</b> · ARCHIVO HISTÓRICO</span>
+                <span class="hx-freq"><b id="hx-freq-num">94.5</b> FM</span>
+            </div>
+        </div>
+
+        <aside class="hx-panel" id="hx-panel">
+            <div class="hx-progress"><div id="hx-progress-bar"></div></div>
+            <div class="hx-chapters" id="hx-chapters"></div>
+            <div class="hx-controls">
+                <button class="hx-btn" id="hx-prev" title="Anterior (←)">←</button>
+                <button class="hx-btn" id="hx-play" title="Pausar / seguir (Espacio)">⏸</button>
+                <button class="hx-btn" id="hx-next" title="Siguiente (→)">→</button>
+                <button class="hx-btn hx-voice on" id="hx-voice" title="Silenciar narración (V)" aria-label="Narración de voz">🎙</button>
+                <div class="hx-dots" id="hx-dots"></div>
+            </div>
+        </aside>
+
+        <div class="hx-bar hx-bar-bottom">
+            <div class="hx-bar-in">
+                <span class="hx-source" id="hx-source"></span>
+                <span class="hx-keys"><kbd>←</kbd><kbd>→</kbd> capítulos · <kbd>Espacio</kbd> pausa · <kbd>V</kbd> voz · <kbd>F</kbd> seguir explorando</span>
+                <button class="hx-exit" id="hx-close">Seguir explorando ✕</button>
+            </div>
         </div>
     </div>
 
@@ -172,6 +285,8 @@
         <div class="loading-progress">
             <div class="loading-progress-bar" id="progress-bar"></div>
         </div>
+        <div class="loading-stage" id="loading-stage" role="status" aria-live="polite">Cargando el edificio…</div>
+        <div class="loading-size" id="loading-size">Calculando tamaño de descarga…</div>
     </div>
 
     <!-- Transición de salida -->
