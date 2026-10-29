@@ -3,6 +3,10 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 // ============================================
 // CONFIGURACIÓN GLOBAL
@@ -33,6 +37,16 @@ const CONFIG = {
         toneMapping: THREE.ACESFilmicToneMapping,
         toneMappingExposure: 1.2,
     },
+    outline: {
+    enabled: true,
+    edgeStrength: 5,
+    edgeGlow: 0.5,
+    edgeThickness: 2,
+    pulsePeriod: 2,
+    colorPending: '#e0c878',
+    colorSeen: '#6ed796',
+    colorDoor: '#ffffff',
+},
     camera: {
         fov: 45,
         near: 0.1,
@@ -527,6 +541,8 @@ const QUALITY_LEVELS = {
 const QUALITY_ORDER = ['high', 'medium', 'low'];
 const qualitySelect = document.getElementById('quality');
 let currentQuality = 'medium';
+let composer = null;
+let outlinePass = null;
 
 function applyQuality(level) {
     const q = QUALITY_LEVELS[level];
@@ -534,6 +550,10 @@ function applyQuality(level) {
     currentQuality = level;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio) * q.scale);
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if (composer) {
+    composer.setPixelRatio(renderer.getPixelRatio());
+    composer.setSize(window.innerWidth, window.innerHeight);
+}
     // Sombras: tipo y encendido según el nivel (y respetando CONFIG.renderer.shadows).
     // Cambiar el tipo o apagarlas obliga a recompilar los materiales una vez.
     const shadowsOn = CONFIG.renderer.shadows && q.shadows;
@@ -555,6 +575,72 @@ function applyQuality(level) {
 }
 
 applyQuality(QUALITY_LEVELS[qualitySelect.value] ? qualitySelect.value : 'medium'); // el selector manda desde el primer frame
+
+// ============================================
+// POST-PROCESADO (OutlinePass)
+// ============================================
+function initPostProcessing() {
+    const pr = renderer.getPixelRatio();
+    const w = window.innerWidth, h = window.innerHeight;
+
+    // Render target con MSAA: al usar composer se pierde el antialias nativo del renderer
+    const rt = new THREE.WebGLRenderTarget(w * pr, h * pr, { type: THREE.HalfFloatType, samples: 4 });
+    composer = new EffectComposer(renderer, rt);
+    composer.setPixelRatio(pr);
+    composer.setSize(w, h);
+
+    composer.addPass(new RenderPass(scene, camera));
+
+    const O = CONFIG.outline;
+    outlinePass = new OutlinePass(new THREE.Vector2(w, h), scene, camera);
+    outlinePass.edgeStrength = O.edgeStrength;
+    outlinePass.edgeGlow = O.edgeGlow;
+    outlinePass.edgeThickness = O.edgeThickness;
+    outlinePass.pulsePeriod = O.pulsePeriod;
+    outlinePass.visibleEdgeColor.set(O.colorPending);
+    // Borde "oculto" en negro: con blending aditivo no se ve, así el contorno
+    // NO se ve a través de las paredes.
+    outlinePass.hiddenEdgeColor.set('#000000');
+    outlinePass.enabled = O.enabled;
+    composer.addPass(outlinePass);
+
+    // Aplica tone mapping (ACES + exposición) y color space sRGB al final
+    composer.addPass(new OutputPass());
+}
+initPostProcessing();
+
+function renderFrame() {
+    if (composer) composer.render();
+    else renderer.render(scene, camera);
+}
+
+// Actualiza qué objeto lleva contorno según lo que apuntas
+let _outlineLast = null;
+function updateOutline() {
+    if (!outlinePass) return;
+    const active = !panelOpen && !photoMode && mode === 'fly' && cameraMode === 'manual';
+    const it = active ? aimedInteractable : null;
+    if (it === _outlineLast) return;
+    _outlineLast = it;
+
+    if (!it) { outlinePass.selectedObjects = []; return; }
+
+    const r = it.ref;
+    const O = CONFIG.outline;
+    let obj, color;
+    if (it.type === 'info') {
+        obj = r.sourceNode;
+        color = r.seen ? O.colorSeen : O.colorPending;
+    } else if (it.type === 'door') {
+        obj = r.node;
+        color = O.colorDoor;
+    } else { // computer
+        obj = r.node;
+        color = (radioState === 'live') ? O.colorSeen : O.colorPending;
+    }
+    outlinePass.visibleEdgeColor.set(color);
+    outlinePass.selectedObjects = obj ? [obj] : [];
+}
 
 const rimLight = new THREE.PointLight('#c9a84c', 20, 20, 1.5);
 rimLight.position.set(-3, 4, -5);
@@ -3709,7 +3795,7 @@ function drawPhotoBrand(ctx, W, H, logo) {
 function capturePhoto() {
     if (!photoMode || photoModalOpen) return;
     // La lectura del canvas WebGL debe ocurrir en el mismo ciclo del render, o sale en blanco
-    renderer.render(scene, camera);
+    renderFrame();
     const sw = canvas.width, sh = canvas.height;
     const k = Math.min(1, CONFIG.photo.maxSide / Math.max(sw, sh));
     const out = document.createElement('canvas');
@@ -3875,11 +3961,12 @@ function animate() {
 
     // Marcadores y etiquetas (distancia, oclusion, pulso)
     updateWorldTags(time, delta);
+     updateOutline();
 
     particles.rotation.y += delta * 0.03;
     particles.rotation.x += delta * 0.01;
 
-    renderer.render(scene, camera);
+    renderFrame();
 
     // Renderizar el objeto 3D real dentro del panel de exhibición (si está abierto)
     if (panelOpen && exhibitObject) {
@@ -3893,10 +3980,14 @@ animate();
 // ============================================
 // RESIZE
 // ============================================
+// ============================================
+// RESIZE
+// ============================================
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if (composer) composer.setSize(window.innerWidth, window.innerHeight);
     if (panelOpen) resizeExhibitCanvas();
 });
 
